@@ -1,0 +1,20 @@
+# Copy to eventmaster.properties and fill in values.
+# Environment variables with the same names override these settings.
+
+# Required — Gmail IMAP credentials
+GMAIL_USER=
+GMAIL_APP_PASSWORD=
+
+# Optional — Gmail label to scan (default: miami-social-event-source)
+# GMAIL_LABEL=miami-social-event-source
+
+# Optional — comma-separated Luma calendar URLs to scrape
+# LUMA_CALENDARS=https://lu.ma/example
+
+# Optional — Hermes webhook (defaults suit local loopback gateway)
+# HERMES_WEBHOOK_ENABLED=true
+# HERMES_WEBHOOK_URL=http://127.0.0.1:8644/webhooks/luma-events
+# HERMES_WEBHOOK_SECRET=INSECURE_NO_AUTH
+
+# Optional — override agent prompt file path
+# HERMES_AGENT_PROMPT_PATH=hermes/agent-prompt.txt

@@ -1,16 +1,19 @@
 package net.skywall.eventmaster;
 
-import io.github.cdimascio.dotenv.Dotenv;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
 
 /**
- * Centralised environment + path configuration. Reads {@code .env} from the
+ * Centralised configuration. Reads {@code eventmaster.properties} from the
  * working directory (when present) and falls back to {@link System#getenv}.
  *
  * <p>All output paths live under {@code run/} next to the working directory,
@@ -18,6 +21,8 @@ import java.util.Set;
  * is git-ignored.
  */
 public final class Config {
+
+    private static final String PROPERTIES_FILE = "eventmaster.properties";
 
     public static final String DEFAULT_HERMES_WEBHOOK_URL =
             "http://127.0.0.1:8644/webhooks/luma-events";
@@ -27,7 +32,7 @@ public final class Config {
     private static final Set<String> FALSY = Set.of("0", "false", "no");
     private static final Logger log = LoggerFactory.getLogger(Config.class);
 
-    private final Dotenv dotenv;
+    private final Properties properties;
 
     public final Path scriptDir;
     public final Path runDir;
@@ -39,7 +44,7 @@ public final class Config {
     public final Path agentPromptPath;
 
     public Config() {
-        this.dotenv = Dotenv.configure().ignoreIfMissing().load();
+        this.properties = loadProperties();
 
         this.scriptDir = Path.of("").toAbsolutePath();
         this.runDir = scriptDir.resolve("run");
@@ -99,18 +104,32 @@ public final class Config {
         return new HermesWebhookConfig(url, secret, enabled, noAuth);
     }
 
+    private static Properties loadProperties() {
+        Properties props = new Properties();
+        Path propsPath = Path.of(PROPERTIES_FILE);
+        if (!Files.isRegularFile(propsPath)) {
+            return props;
+        }
+        try (InputStream in = Files.newInputStream(propsPath)) {
+            props.load(in);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to load " + propsPath.toAbsolutePath(), e);
+        }
+        return props;
+    }
+
     private String get(String key) {
         String sysEnv = System.getenv(key);
         if (sysEnv != null && !sysEnv.isEmpty()) {
             return sysEnv;
         }
-        return dotenv.get(key);
+        return properties.getProperty(key);
     }
 
     private String requireNonBlank(String key) {
         String value = get(key);
         if (value == null || value.isBlank()) {
-            throw new IllegalStateException("Missing required env var: " + key);
+            throw new IllegalStateException("Missing required config: " + key);
         }
         return value;
     }

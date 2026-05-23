@@ -35,5 +35,5 @@ bin/
 .DS_Store
 
 # Secrets and runtime state
-.env
+eventmaster.properties
 run/

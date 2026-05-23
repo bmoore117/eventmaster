@@ -54,8 +54,7 @@ public final class ConnectorRun {
 
             stateStore.saveProcessedIds(processedIds);
 
-            EventStore.RotateResult rotated =
-                    eventStore.rotateAndClassify(upcoming, past, newEvents);
+            EventStore.RotateResult rotated = eventStore.rotateAndClassify(upcoming, past, newEvents);
             upcoming = rotated.upcoming();
             past = rotated.past();
             List<Event> newlyAdded = rotated.newlyAdded();
