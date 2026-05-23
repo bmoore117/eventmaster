@@ -83,30 +83,30 @@ public final class LumaParsers {
             }
             return List.of();
         }
-        if (!data.isObject() || !EVENT_TYPES.contains(data.path("@type").asText())) {
+        if (!data.isObject() || !EVENT_TYPES.contains(data.path("@type").asString())) {
             return List.of();
         }
 
-        String start = data.path("startDate").asText(null);
-        String end = data.path("endDate").asText(null);
+        String start = data.path("startDate").asString(null);
+        String end = data.path("endDate").asString(null);
         JsonNode loc = data.path("location");
 
-        String locName = loc.isObject() ? loc.path("name").asText("") : loc.asText("");
+        String locName = loc.isObject() ? loc.path("name").asString("") : loc.asString("");
         String locAddress = "";
         JsonNode addressNode = loc.path("address");
         if (addressNode.isObject()) {
-            locAddress = addressNode.path("streetAddress").asText("");
+            locAddress = addressNode.path("streetAddress").asString("");
         }
         String location = joinNonBlank(", ", locName, locAddress);
 
         return List.of(new Event(
-                data.path("name").asText(""),
+                data.path("name").asString(""),
                 isoDate(start),
                 isoTime(start),
                 isoDate(end),
                 isoTime(end),
                 location.isEmpty() ? null : location,
-                emptyToNull(data.path("description").asText(null)),
+                emptyToNull(data.path("description").asString(null)),
                 sourceUrl,
                 "luma_jsonld",
                 null, null, null, null
@@ -119,7 +119,7 @@ public final class LumaParsers {
         JsonNode props = root.path("props").path("pageProps");
         JsonNode initialData = props.path("initialData");
 
-        if ("calendar".equals(initialData.path("kind").asText())) {
+        if ("calendar".equals(initialData.path("kind").asString())) {
             return fromLumaCalendarData(initialData.path("data"), sourceUrl);
         }
 
@@ -134,8 +134,8 @@ public final class LumaParsers {
             return List.of();
         }
 
-        String startAt = event.path("start_at").asText(null);
-        String endAt = event.path("end_at").asText(null);
+        String startAt = event.path("start_at").asString(null);
+        String endAt = event.path("end_at").asString(null);
 
         JsonNode geo = firstObject(
                 event.path("geo_address_json"),
@@ -144,22 +144,22 @@ public final class LumaParsers {
         String location = null;
         if (geo != null) {
             location = firstNonBlank(
-                    geo.path("full_address").asText(null),
-                    geo.path("short_address").asText(null)
+                    geo.path("full_address").asString(null),
+                    geo.path("short_address").asString(null)
             );
         }
         if (location == null) {
-            location = event.path("location").asText(null);
+            location = event.path("location").asString(null);
         }
 
         return List.of(new Event(
-                event.path("name").asText(""),
+                event.path("name").asString(""),
                 isoDate(startAt),
                 isoTime(startAt),
                 isoDate(endAt),
                 isoTime(endAt),
                 emptyToNull(location),
-                emptyToNull(event.path("description").asText(null)),
+                emptyToNull(event.path("description").asString(null)),
                 sourceUrl,
                 "luma_nextdata",
                 null, null, null, null
@@ -175,16 +175,16 @@ public final class LumaParsers {
         List<Event> events = new ArrayList<>();
         for (JsonNode item : featured) {
             JsonNode ev = item.path("event");
-            String name = ev.path("name").asText("");
+            String name = ev.path("name").asString("");
             if (!ev.isObject() || name.isEmpty()) {
                 continue;
             }
 
             String startAt = firstNonBlank(
-                    ev.path("start_at").asText(null),
-                    item.path("start_at").asText(null)
+                    ev.path("start_at").asString(null),
+                    item.path("start_at").asString(null)
             );
-            String endAt = ev.path("end_at").asText(null);
+            String endAt = ev.path("end_at").asString(null);
 
             JsonNode geo = firstObject(
                     ev.path("geo_address_info"),
@@ -193,12 +193,12 @@ public final class LumaParsers {
             String location = null;
             if (geo != null) {
                 location = firstNonBlank(
-                        geo.path("full_address").asText(null),
-                        geo.path("short_address").asText(null)
+                        geo.path("full_address").asString(null),
+                        geo.path("short_address").asString(null)
                 );
             }
 
-            String slug = ev.path("url").asText("");
+            String slug = ev.path("url").asString("");
             String eventUrl = slug.isEmpty() ? sourceUrl : "https://lu.ma/" + slug;
 
             events.add(new Event(
@@ -208,7 +208,7 @@ public final class LumaParsers {
                     isoDate(endAt),
                     isoTime(endAt),
                     emptyToNull(location),
-                    emptyToNull(ev.path("description").asText(null)),
+                    emptyToNull(ev.path("description").asString(null)),
                     eventUrl,
                     "luma_calendar_nextdata",
                     null, null, null, null
