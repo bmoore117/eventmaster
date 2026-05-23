@@ -29,16 +29,14 @@ public final class ConnectorRun {
     private final EventStore eventStore;
     private final StateStore stateStore;
     private final HermesClient hermes;
+    private final InstagramPostClassifier instagramClassifier;
 
     public ConnectorRun(Config config) {
         this.config = config;
         this.eventStore = new EventStore(config.upcomingEventsPath, config.pastEventsPath);
-        this.stateStore = new StateStore(
-                config.processedIdsPath,
-                config.processedInstagramIdsPath,
-                config.connectorStatePath
-        );
+        this.stateStore = new StateStore(config.processedIdsPath, config.connectorStatePath);
         this.hermes = new HermesClient(config);
+        this.instagramClassifier = new InstagramPostClassifier(config);
     }
 
     /** Run the connector. Returns 0 on success, 1 on failure (matches the Python exit codes). */
@@ -46,21 +44,18 @@ public final class ConnectorRun {
         log.info("--- email-connector run started ---");
 
         Set<String> processedIds = stateStore.loadProcessedIds();
-        Set<String> processedInstagramIds = stateStore.loadProcessedInstagramIds();
         Set<String> instagramBootstrapped = new HashSet<>(stateStore.loadInstagramBootstrapped());
         List<Event> upcoming = eventStore.loadUpcoming();
         List<Event> past = eventStore.loadPast();
         List<Event> newEvents = new ArrayList<>();
-        List<InstagramPost> newInstagramPosts = new ArrayList<>();
         int emailsProcessed = 0;
 
         try {
             emailsProcessed = processGmail(processedIds, newEvents);
             processLumaCalendars(newEvents);
-            processInstagram(processedInstagramIds, instagramBootstrapped, newInstagramPosts);
+            processInstagram(processedIds, instagramBootstrapped, upcoming, newEvents);
 
             stateStore.saveProcessedIds(processedIds);
-            stateStore.saveProcessedInstagramIds(processedInstagramIds);
             stateStore.saveInstagramBootstrapped(instagramBootstrapped);
 
             EventStore.RotateResult rotated = eventStore.rotateAndClassify(upcoming, past, newEvents);
@@ -72,10 +67,9 @@ public final class ConnectorRun {
             eventStore.writePast(past);
 
             log.info("Run complete: {} email(s) processed, {} event(s) parsed, "
-                            + "{} newly upcoming, {} upcoming total, {} past total, "
-                            + "{} new Instagram post(s)",
+                            + "{} newly upcoming, {} upcoming total, {} past total",
                     emailsProcessed, newEvents.size(), newlyAdded.size(),
-                    upcoming.size(), past.size(), newInstagramPosts.size());
+                    upcoming.size(), past.size());
 
             String now = Instant.now().toString();
             Health health = new Health(now, emailsProcessed,
@@ -84,10 +78,10 @@ public final class ConnectorRun {
 
             stateStore.saveConsecutiveFailures(0);
 
-            if (!newlyAdded.isEmpty() || !newInstagramPosts.isEmpty()) {
-                hermes.notify(now, newlyAdded, newInstagramPosts, health);
+            if (!newlyAdded.isEmpty()) {
+                hermes.notify(now, newlyAdded, List.of(), health);
             } else {
-                log.info("No new events or Instagram posts — Hermes webhook not sent");
+                log.info("No new events — Hermes webhook not sent");
             }
             return 0;
 
@@ -149,13 +143,16 @@ public final class ConnectorRun {
     private void processInstagram(
             Set<String> processedIds,
             Set<String> bootstrappedAccounts,
-            List<InstagramPost> newPosts
+            List<Event> upcomingEvents,
+            List<Event> newEvents
     ) {
         if (!config.instagramEnabled()) {
             return;
         }
 
         ScrapeCreatorsClient client = new ScrapeCreatorsClient(config.scrapeCreatorsApiKey());
+        List<InstagramPost> postsToClassify = new ArrayList<>();
+
         for (String handle : config.instagramAccounts()) {
             log.info("Fetching Instagram posts for @{}", handle);
             List<InstagramPost> posts = client.fetchUserPosts(handle);
@@ -165,30 +162,45 @@ public final class ConnectorRun {
 
             boolean bootstrapped = bootstrappedAccounts.contains(handle);
             int unseen = 0;
-            int notified = 0;
 
             for (InstagramPost post : posts) {
                 if (processedIds.contains(post.id())) {
                     continue;
                 }
-                processedIds.add(post.id());
-                unseen++;
 
                 if (bootstrapped) {
-                    newPosts.add(post);
-                    notified++;
+                    postsToClassify.add(post);
+                } else {
+                    processedIds.add(post.id());
+                    unseen++;
                 }
             }
 
             if (!bootstrapped) {
                 bootstrappedAccounts.add(handle);
-                log.info("  -> bootstrapped @{} — {} post(s) marked seen, none notified",
+                log.info("  -> bootstrapped @{} — {} post(s) marked seen, none classified",
                         handle, unseen);
-            } else if (notified > 0) {
-                log.info("  -> {} new post(s) from @{}", notified, handle);
-            } else {
-                log.info("  -> no new posts from @{}", handle);
             }
+        }
+
+        if (postsToClassify.isEmpty()) {
+            return;
+        }
+
+        log.info("Classifying {} Instagram post(s) via Hermes API", postsToClassify.size());
+        try {
+            List<Event> extracted = instagramClassifier.classifyPosts(postsToClassify, upcomingEvents);
+            if (!extracted.isEmpty()) {
+                newEvents.addAll(extracted);
+                log.info("  -> added {} event(s) from Instagram (instagram_agent)", extracted.size());
+            }
+
+            for (InstagramPost post : postsToClassify) {
+                processedIds.add(post.id());
+            }
+        } catch (IOException e) {
+            log.error("Instagram classification failed — {} post(s) left unprocessed for retry: {}",
+                    postsToClassify.size(), e.getMessage());
         }
     }
 }

@@ -24,29 +24,31 @@ public final class StateStore {
     private static final Logger log = LoggerFactory.getLogger(StateStore.class);
 
     private final Path processedIdsPath;
-    private final Path processedInstagramIdsPath;
     private final Path connectorStatePath;
 
-    public StateStore(Path processedIdsPath, Path processedInstagramIdsPath, Path connectorStatePath) {
+    public StateStore(Path processedIdsPath, Path connectorStatePath) {
         this.processedIdsPath = processedIdsPath;
-        this.processedInstagramIdsPath = processedInstagramIdsPath;
         this.connectorStatePath = connectorStatePath;
     }
 
+    /** Gmail message IDs and Instagram post IDs share one dedup file. */
     public Set<String> loadProcessedIds() {
-        return loadIdSet(processedIdsPath);
+        if (Files.exists(processedIdsPath)) {
+            return loadIdSet(processedIdsPath);
+        }
+
+        Set<String> merged = new HashSet<>();
+        Path parent = processedIdsPath.getParent();
+        merged.addAll(loadIdSet(parent.resolve(".processed_ids")));
+        merged.addAll(loadIdSet(parent.resolve(".processed_instagram_ids")));
+        if (!merged.isEmpty()) {
+            log.info("Migrated {} processed id(s) from legacy .processed_* files", merged.size());
+        }
+        return merged;
     }
 
     public void saveProcessedIds(Set<String> ids) throws IOException {
         saveIdSet(processedIdsPath, ids);
-    }
-
-    public Set<String> loadProcessedInstagramIds() {
-        return loadIdSet(processedInstagramIdsPath);
-    }
-
-    public void saveProcessedInstagramIds(Set<String> ids) throws IOException {
-        saveIdSet(processedInstagramIdsPath, ids);
     }
 
     public int loadConsecutiveFailures() {
@@ -108,8 +110,9 @@ public final class StateStore {
             String content = Files.readString(path, StandardCharsets.UTF_8);
             Set<String> ids = new HashSet<>();
             for (String line : content.split("\\R")) {
-                if (!line.isEmpty()) {
-                    ids.add(line);
+                String trimmed = line.strip();
+                if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                    ids.add(trimmed);
                 }
             }
             return ids;

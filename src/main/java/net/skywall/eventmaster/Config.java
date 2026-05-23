@@ -26,6 +26,8 @@ public final class Config {
 
     public static final String DEFAULT_HERMES_WEBHOOK_URL =
             "http://127.0.0.1:8644/webhooks/eventmaster";
+    public static final String DEFAULT_HERMES_API_URL = "http://127.0.0.1:8642";
+    public static final String DEFAULT_HERMES_API_MODEL = "hermes-agent";
     public static final String DEFAULT_HERMES_WEBHOOK_SECRET = "INSECURE_NO_AUTH";
     public static final String DEFAULT_GMAIL_LABEL = "miami-social-event-source";
 
@@ -38,10 +40,10 @@ public final class Config {
     public final Path upcomingEventsPath;
     public final Path pastEventsPath;
     public final Path processedIdsPath;
-    public final Path processedInstagramIdsPath;
     public final Path connectorStatePath;
     public final Path logPath;
     public final Path agentPromptPath;
+    public final Path instagramClassifierPromptPath;
 
     public Config() {
         this.properties = loadProperties();
@@ -49,15 +51,19 @@ public final class Config {
         this.scriptDir = Path.of("").toAbsolutePath();
         this.upcomingEventsPath = scriptDir.resolve("upcoming_events.json");
         this.pastEventsPath = scriptDir.resolve("past_events.json");
-        this.processedIdsPath = scriptDir.resolve(".processed_ids");
-        this.processedInstagramIdsPath = scriptDir.resolve(".processed_instagram_ids");
-        this.connectorStatePath = scriptDir.resolve(".connector-state.json");
+        this.processedIdsPath = scriptDir.resolve("processed_ids.txt");
+        this.connectorStatePath = scriptDir.resolve("connector-state.json");
         this.logPath = scriptDir.resolve("connector.log");
 
         String promptOverride = get("HERMES_AGENT_PROMPT_PATH");
         this.agentPromptPath = (promptOverride != null && !promptOverride.isBlank())
                 ? Path.of(promptOverride).toAbsolutePath()
                 : scriptDir.resolve("hermes").resolve("agent-prompt.txt");
+
+        String classifierPromptOverride = get("HERMES_INSTAGRAM_CLASSIFIER_PROMPT_PATH");
+        this.instagramClassifierPromptPath = (classifierPromptOverride != null && !classifierPromptOverride.isBlank())
+                ? Path.of(classifierPromptOverride).toAbsolutePath()
+                : scriptDir.resolve("hermes").resolve("instagram-classifier-prompt.txt");
     }
 
     public String gmailUser() {
@@ -105,6 +111,17 @@ public final class Config {
             return null;
         }
         return requireNonBlank("SCRAPECREATORS_API_KEY");
+    }
+
+    public HermesApiConfig hermesApi() {
+        boolean enabled = !FALSY.contains(orDefault(get("HERMES_API_ENABLED"), "true").strip().toLowerCase());
+        String baseUrl = orDefault(get("HERMES_API_URL"), DEFAULT_HERMES_API_URL).strip();
+        while (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        String apiKey = orDefault(get("HERMES_API_KEY"), "").strip();
+        String model = orDefault(get("HERMES_API_MODEL"), DEFAULT_HERMES_API_MODEL).strip();
+        return new HermesApiConfig(baseUrl, apiKey.isEmpty() ? null : apiKey, model, enabled);
     }
 
     public HermesWebhookConfig hermesWebhook() {
@@ -162,4 +179,6 @@ public final class Config {
     }
 
     public record HermesWebhookConfig(String url, String secret, boolean enabled, boolean noAuth) {}
+
+    public record HermesApiConfig(String baseUrl, String apiKey, String model, boolean enabled) {}
 }

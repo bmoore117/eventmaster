@@ -21,5 +21,13 @@ GMAIL_APP_PASSWORD=
 # HERMES_WEBHOOK_URL=http://127.0.0.1:8644/webhooks/eventmaster
 # HERMES_WEBHOOK_SECRET=INSECURE_NO_AUTH
 
-# Optional — override agent prompt file path
+# Optional — Hermes API server for Instagram post classification (OpenAI-compatible)
+# Requires API_SERVER_ENABLED=true in ~/.hermes/.env and hermes gateway running
+# HERMES_API_ENABLED=true
+# HERMES_API_URL=http://127.0.0.1:8642
+# HERMES_API_KEY=
+# HERMES_API_MODEL=hermes-agent
+
+# Optional — override agent prompt file paths
 # HERMES_AGENT_PROMPT_PATH=hermes/agent-prompt.txt
+# HERMES_INSTAGRAM_CLASSIFIER_PROMPT_PATH=hermes/instagram-classifier-prompt.txt
