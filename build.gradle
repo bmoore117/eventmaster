@@ -54,4 +54,11 @@ tasks.register('fatJar', Jar) {
     }) {
         exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
     }
+
+    doLast {
+        copy {
+            from archiveFile
+            into layout.projectDirectory.dir('run')
+        }
+    }
 }
