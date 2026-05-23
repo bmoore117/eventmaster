@@ -1,4 +1,6 @@
-package net.skywall.eventmaster;
+package net.skywall.eventmaster.model;
+
+import net.skywall.eventmaster.utils.EmailParser;
 
 import java.util.List;
 

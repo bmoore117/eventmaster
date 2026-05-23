@@ -2,6 +2,7 @@ package net.skywall.eventmaster;
 
 
 import net.skywall.eventmaster.model.Event;
+import net.skywall.eventmaster.utils.LumaParsers;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.slf4j.Logger;

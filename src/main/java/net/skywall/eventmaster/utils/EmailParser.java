@@ -1,5 +1,7 @@
-package net.skywall.eventmaster;
+package net.skywall.eventmaster.utils;
 
+import net.skywall.eventmaster.model.EmailMessage;
+import net.skywall.eventmaster.LumaScraper;
 import net.skywall.eventmaster.model.Event;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -1,4 +1,4 @@
-package net.skywall.eventmaster;
+package net.skywall.eventmaster.utils;
 
 import net.skywall.eventmaster.model.Event;
 

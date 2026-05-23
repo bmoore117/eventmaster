@@ -21,7 +21,7 @@ public final class App {
 
     private App() {}
 
-    public static void main(String[] args) {
+    static void main(String[] args) {
         int exitCode;
         try {
             Config config = new Config();
@@ -71,11 +71,10 @@ public final class App {
     private static void printHelp() {
         System.out.println("""
                 Usage:
-                  java -jar luma-events.jar              Run the Gmail + Luma fetch and notify Hermes.
-                  java -jar luma-events.jar test         POST a synthetic webhook payload.
-                  java -jar luma-events.jar test --error Simulate a scraper failure.
-                  java -jar luma-events.jar test --dry-run
-                                                          Print the JSON payload without POSTing.
+                  java -jar luma-events.jar                 Run the Gmail + Luma fetch and notify Hermes.
+                  java -jar luma-events.jar test            POST a synthetic webhook payload.
+                  java -jar luma-events.jar test --error    Simulate a scraper failure.
+                  java -jar luma-events.jar test --dry-run  Print the JSON payload without POSTing.
                 """);
     }
 

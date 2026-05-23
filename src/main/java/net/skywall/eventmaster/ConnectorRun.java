@@ -1,7 +1,10 @@
 package net.skywall.eventmaster;
 
+import net.skywall.eventmaster.model.EmailMessage;
 import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.model.Health;
+import net.skywall.eventmaster.utils.EmailParser;
+import net.skywall.eventmaster.utils.GmailSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -113,8 +116,7 @@ public final class ConnectorRun {
             List<Event> events = EmailParser.parse(msg);
             if (!events.isEmpty()) {
                 newEvents.addAll(events);
-                log.info("  -> extracted {} event(s) via {}",
-                        events.size(), events.getFirst().parseMethod());
+                log.info("  -> extracted {} event(s) via {}", events.size(), events.getFirst().parseMethod());
             } else {
                 log.info("  -> no events found in this email");
             }
@@ -130,8 +132,7 @@ public final class ConnectorRun {
             List<Event> events = LumaScraper.fetchCalendar(slug);
             if (!events.isEmpty()) {
                 newEvents.addAll(events);
-                log.info("  -> extracted {} event(s) via {}",
-                        events.size(), events.getFirst().parseMethod());
+                log.info("  -> extracted {} event(s) via {}", events.size(), events.getFirst().parseMethod());
             }
         }
     }

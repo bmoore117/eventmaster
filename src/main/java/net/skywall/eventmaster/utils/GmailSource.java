@@ -1,4 +1,4 @@
-package net.skywall.eventmaster;
+package net.skywall.eventmaster.utils;
 
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
@@ -6,6 +6,7 @@ import jakarta.mail.Multipart;
 import jakarta.mail.Part;
 import jakarta.mail.Session;
 import jakarta.mail.Store;
+import net.skywall.eventmaster.model.EmailMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

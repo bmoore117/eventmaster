@@ -1,4 +1,4 @@
-package net.skywall.eventmaster;
+package net.skywall.eventmaster.utils;
 
 import net.fortuna.ical4j.data.CalendarBuilder;
 import net.fortuna.ical4j.model.Calendar;

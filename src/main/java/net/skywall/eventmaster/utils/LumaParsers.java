@@ -1,6 +1,8 @@
-package net.skywall.eventmaster;
+package net.skywall.eventmaster.utils;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import net.skywall.eventmaster.Json;
+import net.skywall.eventmaster.LumaScraper;
 import net.skywall.eventmaster.model.Event;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
