@@ -43,7 +43,7 @@ public final class InstagramPostClassifier {
         }
 
         String systemPrompt = loadPrompt();
-        String userPrompt = buildUserPrompt(posts, upcomingEvents, java.time.LocalDate.now());
+        String userPrompt = buildUserPrompt(posts, upcomingEvents, LocalDate.now());
         String response = completions.complete(systemPrompt, userPrompt);
         return parseEvents(response, posts);
     }
