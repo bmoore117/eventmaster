@@ -13,7 +13,7 @@ GMAIL_APP_PASSWORD=
 
 # Optional — Hermes webhook (defaults suit local loopback gateway)
 # HERMES_WEBHOOK_ENABLED=true
-# HERMES_WEBHOOK_URL=http://127.0.0.1:8644/webhooks/luma-events
+# HERMES_WEBHOOK_URL=http://127.0.0.1:8644/webhooks/eventmaster
 # HERMES_WEBHOOK_SECRET=INSECURE_NO_AUTH
 
 # Optional — override agent prompt file path

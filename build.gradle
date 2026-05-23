@@ -35,3 +35,23 @@ dependencies {
 test {
     useJUnitPlatform()
 }
+
+tasks.register('fatJar', Jar) {
+    group = 'build'
+    description = 'Builds an executable JAR with all runtime dependencies'
+    archiveFileName = 'eventmaster.jar'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    manifest {
+        attributes 'Main-Class': 'net.skywall.eventmaster.App'
+    }
+
+    from sourceSets.main.output
+    from({
+        configurations.runtimeClasspath
+                .findAll { it.name.endsWith('.jar') }
+                .collect { zipTree(it) }
+    }) {
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    }
+}

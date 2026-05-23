@@ -25,7 +25,7 @@ public final class Config {
     private static final String PROPERTIES_FILE = "eventmaster.properties";
 
     public static final String DEFAULT_HERMES_WEBHOOK_URL =
-            "http://127.0.0.1:8644/webhooks/luma-events";
+            "http://127.0.0.1:8644/webhooks/eventmaster";
     public static final String DEFAULT_HERMES_WEBHOOK_SECRET = "INSECURE_NO_AUTH";
     public static final String DEFAULT_GMAIL_LABEL = "miami-social-event-source";
 

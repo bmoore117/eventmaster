@@ -7,10 +7,10 @@ import org.slf4j.LoggerFactory;
  * Entry point and CLI dispatch.
  *
  * <pre>
- *   java -jar luma-events.jar              # run the connector
- *   java -jar luma-events.jar test         # POST a synthetic Hermes payload
- *   java -jar luma-events.jar test --error # simulate a scraper failure
- *   java -jar luma-events.jar test --dry-run
+ *   java -jar eventmaster.jar              # run the connector
+ *   java -jar eventmaster.jar test         # POST a synthetic Hermes payload
+ *   java -jar eventmaster.jar test --error # simulate a scraper failure
+ *   java -jar eventmaster.jar test --dry-run
  * </pre>
  *
  * Exit codes: 0 success, 1 connector/webhook failure, 2 invalid CLI usage.
@@ -35,7 +35,7 @@ public final class App {
                 exitCode = 0;
             } else {
                 System.err.println("Unknown command: " + args[0]
-                        + " — use: java -jar luma-events.jar [test [--error] [--dry-run]]");
+                        + " — use: java -jar eventmaster.jar [test [--error] [--dry-run]]");
                 exitCode = 2;
             }
         } catch (Throwable t) {
@@ -71,16 +71,16 @@ public final class App {
     private static void printHelp() {
         System.out.println("""
                 Usage:
-                  java -jar luma-events.jar                 Run the Gmail + Luma fetch and notify Hermes.
-                  java -jar luma-events.jar test            POST a synthetic webhook payload.
-                  java -jar luma-events.jar test --error    Simulate a scraper failure.
-                  java -jar luma-events.jar test --dry-run  Print the JSON payload without POSTing.
+                  java -jar eventmaster.jar                 Run the Gmail + Luma fetch and notify Hermes.
+                  java -jar eventmaster.jar test            POST a synthetic webhook payload.
+                  java -jar eventmaster.jar test --error    Simulate a scraper failure.
+                  java -jar eventmaster.jar test --dry-run  Print the JSON payload without POSTing.
                 """);
     }
 
     private static void printTestHelp() {
         System.out.println("""
-                Usage: java -jar luma-events.jar test [--error] [--dry-run]
+                Usage: java -jar eventmaster.jar test [--error] [--dry-run]
                   --error     Simulate a failed scraper run (hasErrors=true, empty newEvents).
                   --dry-run   Print the JSON payload to stdout without POSTing.
                 """);
