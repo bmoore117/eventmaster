@@ -9,6 +9,9 @@ import tools.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,9 +43,7 @@ public final class InstagramPostClassifier {
         }
 
         String systemPrompt = loadPrompt();
-        String userPrompt = buildUserPrompt(posts, upcomingEvents);
-        log.info("System prompt: {}", systemPrompt);
-        log.info("User prompt: {}", userPrompt);
+        String userPrompt = buildUserPrompt(posts, upcomingEvents, java.time.LocalDate.now());
         String response = completions.complete(systemPrompt, userPrompt);
         return parseEvents(response, posts);
     }
@@ -55,8 +56,9 @@ public final class InstagramPostClassifier {
         return Files.readString(config.instagramClassifierPromptPath, StandardCharsets.UTF_8).strip();
     }
 
-    static String buildUserPrompt(List<InstagramPost> posts, List<Event> upcomingEvents) {
+    static String buildUserPrompt(List<InstagramPost> posts, List<Event> upcomingEvents, LocalDate currentDate) {
         Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("currentDate", currentDate.toString());
         payload.put("posts", posts.stream().map(InstagramPostClassifier::postInput).toList());
         payload.put("upcomingEvents", upcomingEvents.stream().map(InstagramPostClassifier::eventInput).toList());
         try {
@@ -73,8 +75,20 @@ public final class InstagramPostClassifier {
         item.put("caption", post.caption());
         item.put("permalink", post.permalink());
         item.put("postedAt", post.postedAt());
+        item.put("postedDate", postedDate(post.postedAt()));
         item.put("mediaType", post.mediaType());
         return item;
+    }
+
+    private static String postedDate(String postedAt) {
+        if (postedAt == null || postedAt.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(postedAt).atZone(ZoneId.systemDefault()).toLocalDate().toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static Map<String, Object> eventInput(Event event) {

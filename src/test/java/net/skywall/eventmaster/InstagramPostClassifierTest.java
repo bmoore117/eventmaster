@@ -4,12 +4,33 @@ import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.model.InstagramPost;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InstagramPostClassifierTest {
+
+    @Test
+    void buildUserPrompt_includesCurrentDateAndPostedDate() throws Exception {
+        InstagramPost post = new InstagramPost(
+                "111",
+                "beachrepublicans",
+                "ABC123",
+                "This Thursday at 6pm",
+                "https://www.instagram.com/p/ABC123/",
+                "2026-05-19T22:00:00Z",
+                "photo",
+                "2026-05-23T12:01:00Z"
+        );
+
+        String prompt = InstagramPostClassifier.buildUserPrompt(
+                List.of(post), List.of(), LocalDate.of(2026, 5, 23));
+
+        assertTrue(prompt.contains("\"currentDate\" : \"2026-05-23\""));
+        assertTrue(prompt.contains("\"postedDate\" : \"2026-05-19\""));
+    }
 
     @Test
     void parseEvents_extractsEventPostsAndSkipsNonEvents() throws Exception {
