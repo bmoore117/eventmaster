@@ -41,6 +41,8 @@ public final class InstagramPostClassifier {
 
         String systemPrompt = loadPrompt();
         String userPrompt = buildUserPrompt(posts, upcomingEvents);
+        log.info("System prompt: {}", systemPrompt);
+        log.info("User prompt: {}", userPrompt);
         String response = completions.complete(systemPrompt, userPrompt);
         return parseEvents(response, posts);
     }
