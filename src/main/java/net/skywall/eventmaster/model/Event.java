@@ -1,7 +1,5 @@
 package net.skywall.eventmaster.model;
 
-import com.fasterxml.jackson.databind.PropertyNamingStrategies.SnakeCaseStrategy;
-import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
 /**
  * A normalised event, ready for serialisation into {@code upcoming_events.json}
@@ -13,7 +11,6 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
  * represented without lossy conversions. Typed parsing happens in
  * {@link lumaevents.DateFilters}.
  */
-@JsonNaming(SnakeCaseStrategy.class)
 public record Event(
         String title,
         String date,

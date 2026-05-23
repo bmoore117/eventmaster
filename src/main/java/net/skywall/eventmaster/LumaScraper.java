@@ -1,6 +1,5 @@
 package net.skywall.eventmaster;
 
-
 import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.utils.LumaParsers;
 import org.jsoup.Jsoup;

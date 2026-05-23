@@ -41,13 +41,8 @@ public final class HermesTest {
         }
 
         if (dryRun) {
-            try {
-                System.out.println(Json.PRETTY.writeValueAsString(payload));
-            } catch (IOException e) {
-                log.error("Could not serialise payload: {}", e.getMessage());
-                return 1;
-            }
-            log.info("Dry run — payload printed, not sent (hasErrors={})", payload.hasErrors());
+            System.out.println(Json.PRETTY.writeValueAsString(payload));
+            log.info("Dry run - payload printed, not sent (hasErrors={})", payload.hasErrors());
             return 0;
         }
 
@@ -62,12 +57,12 @@ public final class HermesTest {
     private static List<Event> sampleEvents() {
         String eventDate = LocalDate.now().plusDays(3).toString();
         return List.of(new Event(
-                "[TEST] Miami Social Radar \u2014 webhook check",
+                "[TEST] Miami Social Radar - webhook check",
                 eventDate,
                 "19:00",
                 null,
                 null,
-                "Test venue (synthetic \u2014 safe to ignore)",
+                "Test venue (synthetic - safe to ignore)",
                 "Synthetic event from `fetch_events.py test`.",
                 "https://lu.ma/test-webhook-check",
                 "test",

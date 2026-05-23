@@ -83,12 +83,7 @@ public final class HermesClient {
         }
 
         byte[] body;
-        try {
-            body = Json.COMPACT.writeValueAsBytes(payload);
-        } catch (IOException e) {
-            log.error("Failed to serialise Hermes payload: {}", e.getMessage());
-            return false;
-        }
+        body = Json.COMPACT.writeValueAsBytes(payload);
 
         HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(webhook.url()))

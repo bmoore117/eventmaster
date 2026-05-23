@@ -1,14 +1,14 @@
 package net.skywall.eventmaster.utils;
 
-import com.fasterxml.jackson.databind.JsonNode;
+
 import net.skywall.eventmaster.Json;
 import net.skywall.eventmaster.LumaScraper;
 import net.skywall.eventmaster.model.Event;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import tools.jackson.databind.JsonNode;
 
-import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -52,27 +52,19 @@ public final class LumaParsers {
     public static List<Event> parsePage(Document doc, String sourceUrl) {
         Elements ldScripts = doc.select("script[type=application/ld+json]");
         for (Element script : ldScripts) {
-            try {
-                JsonNode root = Json.MAPPER.readTree(script.data());
-                List<Event> events = fromJsonLd(root, sourceUrl);
-                if (!events.isEmpty()) {
-                    return events;
-                }
-            } catch (IOException _) {
-                // Try the next script tag.
+            JsonNode root = Json.MAPPER.readTree(script.data());
+            List<Event> events = fromJsonLd(root, sourceUrl);
+            if (!events.isEmpty()) {
+                return events;
             }
         }
 
         Element nextData = doc.getElementById("__NEXT_DATA__");
         if (nextData != null) {
-            try {
-                JsonNode root = Json.MAPPER.readTree(nextData.data());
-                List<Event> events = fromNextData(root, sourceUrl);
-                if (!events.isEmpty()) {
-                    return events;
-                }
-            } catch (IOException _) {
-                // Fall through to HTML scrape.
+            JsonNode root = Json.MAPPER.readTree(nextData.data());
+            List<Event> events = fromNextData(root, sourceUrl);
+            if (!events.isEmpty()) {
+                return events;
             }
         }
 
