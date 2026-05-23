@@ -35,7 +35,6 @@ public final class Config {
     private final Properties properties;
 
     public final Path scriptDir;
-    public final Path runDir;
     public final Path upcomingEventsPath;
     public final Path pastEventsPath;
     public final Path processedIdsPath;
@@ -47,12 +46,11 @@ public final class Config {
         this.properties = loadProperties();
 
         this.scriptDir = Path.of("").toAbsolutePath();
-        this.runDir = scriptDir.resolve("run");
-        this.upcomingEventsPath = runDir.resolve("upcoming_events.json");
-        this.pastEventsPath = runDir.resolve("past_events.json");
-        this.processedIdsPath = runDir.resolve(".processed_ids");
-        this.connectorStatePath = runDir.resolve(".connector-state.json");
-        this.logPath = runDir.resolve("connector.log");
+        this.upcomingEventsPath = scriptDir.resolve("upcoming_events.json");
+        this.pastEventsPath = scriptDir.resolve("past_events.json");
+        this.processedIdsPath = scriptDir.resolve(".processed_ids");
+        this.connectorStatePath = scriptDir.resolve(".connector-state.json");
+        this.logPath = scriptDir.resolve("connector.log");
 
         String promptOverride = get("HERMES_AGENT_PROMPT_PATH");
         this.agentPromptPath = (promptOverride != null && !promptOverride.isBlank())
