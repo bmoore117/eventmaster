@@ -34,7 +34,7 @@ public final class HermesTest {
 
         WebhookPayload payload;
         try {
-            payload = client.buildPayload(triggeredAt, events, health);
+            payload = client.buildPayload(triggeredAt, events, List.of(), health);
         } catch (IOException e) {
             log.error("{}", e.getMessage());
             return 1;

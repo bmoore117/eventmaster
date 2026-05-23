@@ -2,6 +2,7 @@ package net.skywall.eventmaster;
 
 import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.model.Health;
+import net.skywall.eventmaster.model.InstagramPost;
 import net.skywall.eventmaster.model.WebhookPayload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,12 +51,18 @@ public final class HermesClient {
         return Files.readString(config.agentPromptPath, StandardCharsets.UTF_8).strip();
     }
 
-    public WebhookPayload buildPayload(String triggeredAt, List<Event> newEvents, Health health) throws IOException {
+    public WebhookPayload buildPayload(
+            String triggeredAt,
+            List<Event> newEvents,
+            List<InstagramPost> newInstagramPosts,
+            Health health
+    ) throws IOException {
         return new WebhookPayload(
                 loadAgentPrompt(),
                 triggeredAt,
                 health.hasErrors(),
                 newEvents,
+                newInstagramPosts,
                 health
         );
     }
@@ -121,10 +128,15 @@ public final class HermesClient {
     }
 
     /** Convenience: build + post. Logs the result. Returns true on a 2xx response. */
-    public boolean notify(String triggeredAt, List<Event> newEvents, Health health) {
+    public boolean notify(
+            String triggeredAt,
+            List<Event> newEvents,
+            List<InstagramPost> newInstagramPosts,
+            Health health
+    ) {
         WebhookPayload payload;
         try {
-            payload = buildPayload(triggeredAt, newEvents, health);
+            payload = buildPayload(triggeredAt, newEvents, newInstagramPosts, health);
         } catch (IOException e) {
             log.error("{}", e.getMessage());
             return false;
@@ -132,8 +144,8 @@ public final class HermesClient {
 
         boolean ok = post(payload);
         if (ok) {
-            log.info("Notified Hermes: {} new event(s), hasErrors={}",
-                    newEvents.size(), payload.hasErrors());
+            log.info("Notified Hermes: {} new event(s), {} new Instagram post(s), hasErrors={}",
+                    newEvents.size(), newInstagramPosts.size(), payload.hasErrors());
         }
         return ok;
     }

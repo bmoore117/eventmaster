@@ -38,6 +38,7 @@ public final class Config {
     public final Path upcomingEventsPath;
     public final Path pastEventsPath;
     public final Path processedIdsPath;
+    public final Path processedInstagramIdsPath;
     public final Path connectorStatePath;
     public final Path logPath;
     public final Path agentPromptPath;
@@ -49,6 +50,7 @@ public final class Config {
         this.upcomingEventsPath = scriptDir.resolve("upcoming_events.json");
         this.pastEventsPath = scriptDir.resolve("past_events.json");
         this.processedIdsPath = scriptDir.resolve(".processed_ids");
+        this.processedInstagramIdsPath = scriptDir.resolve(".processed_instagram_ids");
         this.connectorStatePath = scriptDir.resolve(".connector-state.json");
         this.logPath = scriptDir.resolve("connector.log");
 
@@ -80,6 +82,29 @@ public final class Config {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .toList();
+    }
+
+    public List<String> instagramAccounts() {
+        String raw = get("INSTAGRAM_ACCOUNTS");
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(ScrapeCreatorsClient::normalizeHandle)
+                .toList();
+    }
+
+    public boolean instagramEnabled() {
+        return !instagramAccounts().isEmpty();
+    }
+
+    public String scrapeCreatorsApiKey() {
+        if (!instagramEnabled()) {
+            return null;
+        }
+        return requireNonBlank("SCRAPECREATORS_API_KEY");
     }
 
     public HermesWebhookConfig hermesWebhook() {

@@ -3,6 +3,7 @@ package net.skywall.eventmaster;
 import net.skywall.eventmaster.model.EmailMessage;
 import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.model.Health;
+import net.skywall.eventmaster.model.InstagramPost;
 import net.skywall.eventmaster.utils.EmailParser;
 import net.skywall.eventmaster.utils.GmailSource;
 import org.slf4j.Logger;
@@ -11,16 +12,14 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 /**
- * One full connector run: read Gmail + Luma calendars, dedup, classify, persist,
- * and notify Hermes when there's something new or an error to report.
- *
- * <p>This is the Java port of the {@code main()} function in
- * {@code fetch_events.py}. The success and failure code paths each finish by
- * stamping a {@link Health} snapshot and (when warranted) POSTing it to Hermes.
+ * One full connector run: read Gmail + Luma calendars + Instagram posts, dedup,
+ * classify, persist, and notify Hermes when there's something new or an error
+ * to report.
  */
 public final class ConnectorRun {
 
@@ -34,7 +33,11 @@ public final class ConnectorRun {
     public ConnectorRun(Config config) {
         this.config = config;
         this.eventStore = new EventStore(config.upcomingEventsPath, config.pastEventsPath);
-        this.stateStore = new StateStore(config.processedIdsPath, config.connectorStatePath);
+        this.stateStore = new StateStore(
+                config.processedIdsPath,
+                config.processedInstagramIdsPath,
+                config.connectorStatePath
+        );
         this.hermes = new HermesClient(config);
     }
 
@@ -43,16 +46,22 @@ public final class ConnectorRun {
         log.info("--- email-connector run started ---");
 
         Set<String> processedIds = stateStore.loadProcessedIds();
+        Set<String> processedInstagramIds = stateStore.loadProcessedInstagramIds();
+        Set<String> instagramBootstrapped = new HashSet<>(stateStore.loadInstagramBootstrapped());
         List<Event> upcoming = eventStore.loadUpcoming();
         List<Event> past = eventStore.loadPast();
         List<Event> newEvents = new ArrayList<>();
+        List<InstagramPost> newInstagramPosts = new ArrayList<>();
         int emailsProcessed = 0;
 
         try {
             emailsProcessed = processGmail(processedIds, newEvents);
             processLumaCalendars(newEvents);
+            processInstagram(processedInstagramIds, instagramBootstrapped, newInstagramPosts);
 
             stateStore.saveProcessedIds(processedIds);
+            stateStore.saveProcessedInstagramIds(processedInstagramIds);
+            stateStore.saveInstagramBootstrapped(instagramBootstrapped);
 
             EventStore.RotateResult rotated = eventStore.rotateAndClassify(upcoming, past, newEvents);
             upcoming = rotated.upcoming();
@@ -63,9 +72,10 @@ public final class ConnectorRun {
             eventStore.writePast(past);
 
             log.info("Run complete: {} email(s) processed, {} event(s) parsed, "
-                            + "{} newly upcoming, {} upcoming total, {} past total",
+                            + "{} newly upcoming, {} upcoming total, {} past total, "
+                            + "{} new Instagram post(s)",
                     emailsProcessed, newEvents.size(), newlyAdded.size(),
-                    upcoming.size(), past.size());
+                    upcoming.size(), past.size(), newInstagramPosts.size());
 
             String now = Instant.now().toString();
             Health health = new Health(now, emailsProcessed,
@@ -74,10 +84,10 @@ public final class ConnectorRun {
 
             stateStore.saveConsecutiveFailures(0);
 
-            if (!newlyAdded.isEmpty()) {
-                hermes.notify(now, newlyAdded, health);
+            if (!newlyAdded.isEmpty() || !newInstagramPosts.isEmpty()) {
+                hermes.notify(now, newlyAdded, newInstagramPosts, health);
             } else {
-                log.info("No new events — Hermes webhook not sent");
+                log.info("No new events or Instagram posts — Hermes webhook not sent");
             }
             return 0;
 
@@ -95,7 +105,7 @@ public final class ConnectorRun {
             } catch (IOException io) {
                 log.warn("Could not save connector state: {}", io.getMessage());
             }
-            hermes.notify(now, List.of(), errorHealth);
+            hermes.notify(now, List.of(), List.of(), errorHealth);
             return 1;
         }
     }
@@ -132,6 +142,52 @@ public final class ConnectorRun {
             if (!events.isEmpty()) {
                 newEvents.addAll(events);
                 log.info("  -> extracted {} event(s) via {}", events.size(), events.getFirst().parseMethod());
+            }
+        }
+    }
+
+    private void processInstagram(
+            Set<String> processedIds,
+            Set<String> bootstrappedAccounts,
+            List<InstagramPost> newPosts
+    ) {
+        if (!config.instagramEnabled()) {
+            return;
+        }
+
+        ScrapeCreatorsClient client = new ScrapeCreatorsClient(config.scrapeCreatorsApiKey());
+        for (String handle : config.instagramAccounts()) {
+            log.info("Fetching Instagram posts for @{}", handle);
+            List<InstagramPost> posts = client.fetchUserPosts(handle);
+            if (posts.isEmpty()) {
+                continue;
+            }
+
+            boolean bootstrapped = bootstrappedAccounts.contains(handle);
+            int unseen = 0;
+            int notified = 0;
+
+            for (InstagramPost post : posts) {
+                if (processedIds.contains(post.id())) {
+                    continue;
+                }
+                processedIds.add(post.id());
+                unseen++;
+
+                if (bootstrapped) {
+                    newPosts.add(post);
+                    notified++;
+                }
+            }
+
+            if (!bootstrapped) {
+                bootstrappedAccounts.add(handle);
+                log.info("  -> bootstrapped @{} — {} post(s) marked seen, none notified",
+                        handle, unseen);
+            } else if (notified > 0) {
+                log.info("  -> {} new post(s) from @{}", notified, handle);
+            } else {
+                log.info("  -> no new posts from @{}", handle);
             }
         }
     }

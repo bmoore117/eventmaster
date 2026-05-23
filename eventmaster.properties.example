@@ -11,6 +11,11 @@ GMAIL_APP_PASSWORD=
 # Optional — comma-separated Luma calendar URLs to scrape
 # LUMA_CALENDARS=https://lu.ma/example
 
+# Optional — Instagram accounts to watch (comma-separated handles)
+# Requires SCRAPECREATORS_API_KEY from https://scrapecreators.com
+# INSTAGRAM_ACCOUNTS=someaccount,anotheraccount
+# SCRAPECREATORS_API_KEY=
+
 # Optional — Hermes webhook (defaults suit local loopback gateway)
 # HERMES_WEBHOOK_ENABLED=true
 # HERMES_WEBHOOK_URL=http://127.0.0.1:8644/webhooks/eventmaster

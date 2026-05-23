@@ -14,5 +14,6 @@ public record WebhookPayload(
         @JsonProperty("triggered_at") String triggeredAt,
         @JsonProperty("hasErrors") boolean hasErrors,
         @JsonProperty("newEvents") List<Event> newEvents,
+        @JsonProperty("newInstagramPosts") List<InstagramPost> newInstagramPosts,
         @JsonProperty("health") Health health
 ) {}

@@ -1,6 +1,6 @@
 # Merge into ~/.hermes/config.yaml (under platforms.webhook).
 # INSECURE_NO_AUTH only works when the webhook binds to loopback — not 0.0.0.0.
-# POST body fields: instructions, triggered_at, hasErrors, newEvents, health
+# POST body fields: instructions, triggered_at, hasErrors, newEvents, newInstagramPosts, health
 
 platforms:
   webhook:
@@ -22,6 +22,9 @@ platforms:
 
             newEvents:
             {newEvents}
+
+            newInstagramPosts:
+            {newInstagramPosts}
 
             health:
             {health}
