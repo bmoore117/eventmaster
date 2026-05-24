@@ -1,6 +1,9 @@
 # Copy to eventmaster.properties and fill in values.
 # Environment variables with the same names override these settings.
 
+# Optional — log file path (default: connector.log in the working directory)
+# EVENTMASTER_LOG_PATH=connector.log
+
 # Required — Gmail IMAP credentials
 GMAIL_USER=
 GMAIL_APP_PASSWORD=

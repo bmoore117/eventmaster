@@ -53,7 +53,7 @@ public final class Config {
         this.pastEventsPath = scriptDir.resolve("past_events.json");
         this.processedIdsPath = scriptDir.resolve("processed_ids.txt");
         this.connectorStatePath = scriptDir.resolve("connector-state.json");
-        this.logPath = scriptDir.resolve("connector.log");
+        this.logPath = resolveLogPath();
 
         String promptOverride = get("HERMES_AGENT_PROMPT_PATH");
         this.agentPromptPath = (promptOverride != null && !promptOverride.isBlank())
@@ -142,6 +142,18 @@ public final class Config {
 
         boolean noAuth = secret.isEmpty() || secret.equals(DEFAULT_HERMES_WEBHOOK_SECRET);
         return new HermesWebhookConfig(url, secret, enabled, noAuth);
+    }
+
+    private Path resolveLogPath() {
+        String configured = System.getProperty("eventmaster.log.path");
+        if (configured != null && !configured.isBlank()) {
+            return Path.of(configured);
+        }
+        String override = get("EVENTMASTER_LOG_PATH");
+        if (override != null && !override.isBlank()) {
+            return Path.of(override).toAbsolutePath();
+        }
+        return scriptDir.resolve("connector.log");
     }
 
     private static Properties loadProperties() {

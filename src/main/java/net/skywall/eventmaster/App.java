@@ -17,14 +17,19 @@ import org.slf4j.LoggerFactory;
  */
 public final class App {
 
+    static {
+        LoggingInit.configure();
+    }
+
     private static final Logger log = LoggerFactory.getLogger(App.class);
 
     private App() {}
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         int exitCode;
         try {
             Config config = new Config();
+            log.info("Log file: {}", config.logPath);
 
             if (args.length == 0) {
                 exitCode = new ConnectorRun(config).execute();

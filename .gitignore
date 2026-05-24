@@ -36,4 +36,6 @@ bin/
 
 # Secrets and runtime state
 eventmaster.properties
+connector.log
+connector.log.*
 run/
