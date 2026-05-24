@@ -55,34 +55,38 @@ public final class ConnectorRun {
             processLumaCalendars(newEvents);
             processInstagram(processedIds, instagramBootstrapped, upcoming, newEvents);
 
-            stateStore.saveProcessedIds(processedIds);
-            stateStore.saveInstagramBootstrapped(instagramBootstrapped);
-
             EventStore.RotateResult rotated = eventStore.rotateAndClassify(upcoming, past, newEvents);
-            upcoming = rotated.upcoming();
-            past = rotated.past();
+            List<Event> nextUpcoming = rotated.upcoming();
+            List<Event> nextPast = rotated.past();
             List<Event> newlyAdded = rotated.newlyAdded();
-
-            eventStore.writeUpcoming(upcoming);
-            eventStore.writePast(past);
 
             log.info("Run complete: {} email(s) processed, {} event(s) parsed, "
                             + "{} newly upcoming, {} upcoming total, {} past total",
                     emailsProcessed, newEvents.size(), newlyAdded.size(),
-                    upcoming.size(), past.size());
+                    nextUpcoming.size(), nextPast.size());
 
             String now = Instant.now().toString();
             Health health = new Health(now, emailsProcessed,
-                    upcoming.size(), past.size(),
+                    nextUpcoming.size(), nextPast.size(),
                     0, null, null);
 
-            stateStore.saveConsecutiveFailures(0);
-
-            if (!newlyAdded.isEmpty()) {
-                hermes.notify(now, newlyAdded, List.of(), health);
-            } else {
+            // Notify Hermes BEFORE persisting anything. If delivery fails we
+            // throw so the catch block treats it as a run failure: processedIds
+            // and instagramBootstrapped stay unsaved and the new events stay
+            // out of upcoming_events.json, so the next run will re-scrape and
+            // retry the same notification.
+            if (newlyAdded.isEmpty()) {
                 log.info("No new events — Hermes webhook not sent");
+            } else if (!hermes.notify(now, newlyAdded, List.of(), health)) {
+                throw new WebhookDeliveryException(
+                        "Hermes webhook delivery failed for " + newlyAdded.size() + " new event(s)");
             }
+
+            stateStore.saveProcessedIds(processedIds);
+            stateStore.saveInstagramBootstrapped(instagramBootstrapped);
+            eventStore.writeUpcoming(nextUpcoming);
+            eventStore.writePast(nextPast);
+            stateStore.saveConsecutiveFailures(0);
             return 0;
 
         } catch (Exception e) {
@@ -99,8 +103,23 @@ public final class ConnectorRun {
             } catch (IOException io) {
                 log.warn("Could not save connector state: {}", io.getMessage());
             }
-            hermes.notify(now, List.of(), List.of(), errorHealth);
+
+            // Don't re-hammer the webhook with an error notification if we
+            // just failed to deliver one — the next run will retry the real
+            // payload anyway.
+            if (e instanceof WebhookDeliveryException) {
+                log.warn("Skipping Hermes error notification — webhook itself is the failure mode");
+            } else {
+                hermes.notify(now, List.of(), List.of(), errorHealth);
+            }
             return 1;
+        }
+    }
+
+    /** Sentinel exception: success-path webhook delivery failed. */
+    private static final class WebhookDeliveryException extends RuntimeException {
+        WebhookDeliveryException(String message) {
+            super(message);
         }
     }
 

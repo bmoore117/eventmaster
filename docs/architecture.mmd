@@ -1,0 +1,109 @@
+%% eventmaster — runtime control flow.
+%% Open in https://mermaid.live or a Mermaid Preview extension for pan/zoom.
+%% Update whenever the control flow in ConnectorRun, EventStore, or the
+%% source adapters changes meaningfully.
+
+flowchart TD
+    Start(["cron: java -jar eventmaster.jar"]) --> Init["Config loads<br/>eventmaster.properties + env<br/>from AppRoot.directory()"]
+    Init --> Run["ConnectorRun.execute()"]
+
+    Run --> LoadState["Load persisted state:<br/>• processed_ids.txt<br/>• connector-state.json<br/>&nbsp;&nbsp;(consecutive_failures,<br/>&nbsp;&nbsp;instagram_bootstrapped)<br/>• upcoming_events.json<br/>• past_events.json"]
+    LoadState --> TryBlock{{"try { ... }"}}
+
+    subgraph GMAIL["1 — Gmail label"]
+      direction TB
+      Imap["GmailSource.readLabel<br/>IMAPS via jakarta.mail"]
+      GLoop[/"for each message"/]
+      SeenG{"messageId in<br/>processedIds?"}
+      EP["EmailParser.parse"]
+      Ics{".ics attachment?"}
+      IcsP["IcsParser<br/>(ical4j VEVENTs)"]
+      LumaIn{"Luma URL in body?"}
+      LumaE["LumaScraper.fetchEvent<br/>JSON-LD → __NEXT_DATA__ → HTML"]
+      BodyP["BodyTextParser<br/>(regex best-effort)"]
+      EnrichG["stamp subject/from/<br/>messageId/fetchedAt"]
+      AddG["append → newEvents,<br/>add msgId to processedIds"]
+
+      Imap --> GLoop --> SeenG
+      SeenG -- yes --> GLoop
+      SeenG -- no --> EP --> Ics
+      Ics -- yes --> IcsP
+      Ics -- no --> LumaIn
+      LumaIn -- yes --> LumaE
+      LumaIn -- no --> BodyP
+      IcsP --> EnrichG
+      LumaE --> EnrichG
+      BodyP --> EnrichG
+      EnrichG --> AddG --> GLoop
+    end
+    TryBlock --> Imap
+
+    subgraph LUMACAL["2 — Luma calendars"]
+      direction TB
+      LCLoop[/"for each slug in<br/>LUMA_CALENDARS"/]
+      CalFetch["LumaScraper.fetchCalendar<br/>1. fetch group page<br/>2. LumaParsers.parsePage<br/>3. drop already-past stubs<br/>4. follow each event URL"]
+      AddL["append enriched events<br/>(source = luma_calendar:slug)"]
+      LCLoop --> CalFetch --> AddL --> LCLoop
+    end
+    GLoop --> LCLoop
+
+    subgraph IG["3 — Instagram (optional)"]
+      direction TB
+      IGOn{"instagramEnabled()?"}
+      IGLoop[/"for each handle"/]
+      SC["ScrapeCreatorsClient<br/>.fetchUserPosts"]
+      Boot{"handle in<br/>instagramBootstrapped?"}
+      BootMark["mark every unseen post<br/>as seen in processedIds,<br/>add handle to bootstrapped<br/>(no classification)"]
+      Queue["queue unseen posts<br/>into postsToClassify"]
+      Any{"postsToClassify<br/>non-empty?"}
+      Cls["InstagramPostClassifier<br/>POST Hermes<br/>/v1/chat/completions"]
+      ClsFail["log error,<br/>leave post IDs unprocessed<br/>(retry next run)"]
+      ParseCls["parse JSON,<br/>keep isEvent=true,<br/>map to Event<br/>(parseMethod = instagram_agent)"]
+      AppendIg["append → newEvents,<br/>mark classified IDs seen"]
+
+      IGOn -- no --> IGdone([done])
+      IGOn -- yes --> IGLoop --> SC --> Boot
+      Boot -- no --> BootMark --> IGLoop
+      Boot -- yes --> Queue --> IGLoop
+      IGLoop --> Any
+      Any -- no --> IGdone
+      Any -- yes --> Cls
+      Cls -- IOException --> ClsFail --> IGdone
+      Cls -- ok --> ParseCls --> AppendIg --> IGdone
+    end
+    LCLoop --> IGOn
+
+    subgraph ROT["EventStore.rotateAndClassify (in memory)"]
+      direction TB
+      R1["1. move past-dated<br/>upcoming → past"]
+      R2["2. for each newEvent:<br/>• isPast → past (deduped)<br/>• else isInNextNDays(7)<br/>&nbsp;&nbsp;→ upcoming (deduped)"]
+      R3["dedup key:<br/>normalised lumaUrl<br/>(lowercase, no query,<br/>no trailing slash)<br/>else title|date"]
+      R1 --> R2 --> R3
+    end
+    IGdone --> R1
+
+    R3 --> Health["build Health snapshot<br/>(consecutive_failures = 0)"]
+    Health --> Newly{"newlyAdded<br/>non-empty?"}
+    Newly -- no --> Commit
+    Newly -- yes --> Notify["HermesClient.notify<br/>POST signed webhook<br/>(HMAC-SHA256 unless noAuth)"]
+    Notify -- "2xx" --> Commit
+    Notify -- "non-2xx /<br/>network error" -.-> WebhookFail[/"throw<br/>WebhookDeliveryException"/]
+
+    subgraph Commit["Commit state (only after delivery)"]
+      direction TB
+      CW1["saveProcessedIds"]
+      CW2["saveInstagramBootstrapped"]
+      CW3["writeUpcoming"]
+      CW4["writePast"]
+      CW5["saveConsecutiveFailures(0)"]
+      CW1 --> CW2 --> CW3 --> CW4 --> CW5
+    end
+    CW5 --> OK(["exit 0"])
+
+    TryBlock -. exception .-> Catch["loadConsecutiveFailures,<br/>increment,<br/>build error Health"]
+    WebhookFail -. caught .-> Catch
+    Catch --> WasWebhook{"cause =<br/>WebhookDeliveryException?"}
+    WasWebhook -- yes --> SkipErr["log: skip error notify<br/>(webhook is the failure)"]
+    WasWebhook -- no --> NotifyErr["HermesClient.notify<br/>(empty events,<br/>hasErrors = true)"]
+    SkipErr --> FAIL(["exit 1"])
+    NotifyErr --> FAIL

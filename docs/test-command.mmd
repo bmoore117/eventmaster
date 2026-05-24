@@ -1,0 +1,15 @@
+%% Synthetic webhook test path: `java -jar eventmaster.jar test [flags]`.
+%% Bypasses Gmail / Luma / Instagram entirely — exercises only the Hermes
+%% webhook end-to-end. Lives in HermesTest.run().
+
+flowchart TD
+    Start(["java -jar eventmaster.jar test [flags]"]) --> TF{flags}
+    TF -- "(none)" --> OKp["synthetic event<br/>+ healthy Health"]
+    TF -- "--error" --> EP2["synthetic error Health,<br/>empty events"]
+    TF -- "--dry-run" --> DR["print JSON payload<br/>to stdout"]
+    DR --> OK(["exit 0"])
+    OKp --> PT["HermesClient.post"]
+    EP2 --> PT
+    PT --> Tr{"2xx?"}
+    Tr -- yes --> OK
+    Tr -- no --> FAIL(["exit 1"])
