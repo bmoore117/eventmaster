@@ -29,6 +29,7 @@ public final class App {
         int exitCode;
         try {
             Config config = new Config();
+            log.info("App directory: {}", config.root);
             log.info("Log file: {}", config.logPath);
 
             if (args.length == 0) {

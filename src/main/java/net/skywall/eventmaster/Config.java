@@ -14,11 +14,8 @@ import java.util.Set;
 
 /**
  * Centralised configuration. Reads {@code eventmaster.properties} from the
- * working directory (when present) and falls back to {@link System#getenv}.
- *
- * <p>All output paths live under {@code run/} next to the working directory,
- * matching the Python implementation. {@code run/} is created on demand and
- * is git-ignored.
+ * application directory (the folder containing the JAR) and falls back to
+ * {@link System#getenv}.
  */
 public final class Config {
 
@@ -36,7 +33,7 @@ public final class Config {
 
     private final Properties properties;
 
-    public final Path scriptDir;
+    public final Path root;
     public final Path upcomingEventsPath;
     public final Path pastEventsPath;
     public final Path processedIdsPath;
@@ -46,24 +43,24 @@ public final class Config {
     public final Path instagramClassifierPromptPath;
 
     public Config() {
+        this.root = AppRoot.directory();
         this.properties = loadProperties();
 
-        this.scriptDir = Path.of("").toAbsolutePath();
-        this.upcomingEventsPath = scriptDir.resolve("upcoming_events.json");
-        this.pastEventsPath = scriptDir.resolve("past_events.json");
-        this.processedIdsPath = scriptDir.resolve("processed_ids.txt");
-        this.connectorStatePath = scriptDir.resolve("connector-state.json");
+        this.upcomingEventsPath = root.resolve("upcoming_events.json");
+        this.pastEventsPath = root.resolve("past_events.json");
+        this.processedIdsPath = root.resolve("processed_ids.txt");
+        this.connectorStatePath = root.resolve("connector-state.json");
         this.logPath = resolveLogPath();
 
         String promptOverride = get("HERMES_AGENT_PROMPT_PATH");
         this.agentPromptPath = (promptOverride != null && !promptOverride.isBlank())
                 ? Path.of(promptOverride).toAbsolutePath()
-                : scriptDir.resolve("hermes").resolve("agent-prompt.txt");
+                : root.resolve("hermes").resolve("agent-prompt.txt");
 
         String classifierPromptOverride = get("HERMES_INSTAGRAM_CLASSIFIER_PROMPT_PATH");
         this.instagramClassifierPromptPath = (classifierPromptOverride != null && !classifierPromptOverride.isBlank())
                 ? Path.of(classifierPromptOverride).toAbsolutePath()
-                : scriptDir.resolve("hermes").resolve("instagram-classifier-prompt.txt");
+                : root.resolve("hermes").resolve("instagram-classifier-prompt.txt");
     }
 
     public String gmailUser() {
@@ -151,14 +148,14 @@ public final class Config {
         }
         String override = get("EVENTMASTER_LOG_PATH");
         if (override != null && !override.isBlank()) {
-            return Path.of(override).toAbsolutePath();
+            return AppRoot.resolve(override);
         }
-        return scriptDir.resolve("connector.log");
+        return root.resolve("connector.log");
     }
 
-    private static Properties loadProperties() {
+    private Properties loadProperties() {
         Properties props = new Properties();
-        Path propsPath = Path.of(PROPERTIES_FILE);
+        Path propsPath = root.resolve(PROPERTIES_FILE);
         if (!Files.isRegularFile(propsPath)) {
             return props;
         }

@@ -11,6 +11,7 @@ final class LoggingInit {
     private static final String PROPERTIES_FILE = "eventmaster.properties";
     private static final String LOG_PATH_KEY = "EVENTMASTER_LOG_PATH";
     private static final String SYSTEM_PROPERTY = "eventmaster.log.path";
+    private static final String DEFAULT_LOG_FILE = "connector.log";
 
     private LoggingInit() {}
 
@@ -19,19 +20,19 @@ final class LoggingInit {
             return;
         }
 
-        String path = System.getenv(LOG_PATH_KEY);
-        if (path == null || path.isBlank()) {
-            path = readPropertiesLogPath();
+        String logFile = System.getenv(LOG_PATH_KEY);
+        if (logFile == null || logFile.isBlank()) {
+            logFile = readPropertiesLogPath();
         }
-        if (path == null || path.isBlank()) {
-            path = "connector.log";
+        if (logFile == null || logFile.isBlank()) {
+            logFile = DEFAULT_LOG_FILE;
         }
 
-        System.setProperty(SYSTEM_PROPERTY, Path.of(path).toAbsolutePath().toString());
+        System.setProperty(SYSTEM_PROPERTY, AppRoot.resolve(logFile).toString());
     }
 
     private static String readPropertiesLogPath() {
-        Path propsPath = Path.of(PROPERTIES_FILE);
+        Path propsPath = AppRoot.resolve(PROPERTIES_FILE);
         if (!Files.isRegularFile(propsPath)) {
             return null;
         }
