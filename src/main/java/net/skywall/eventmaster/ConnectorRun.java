@@ -8,6 +8,7 @@ import net.skywall.eventmaster.utils.EmailParser;
 import net.skywall.eventmaster.utils.GmailSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -217,7 +218,10 @@ public final class ConnectorRun {
             for (InstagramPost post : postsToClassify) {
                 processedIds.add(post.id());
             }
-        } catch (IOException e) {
+        } catch (IOException | JacksonException e) {
+            // JacksonException covers malformed JSON from the Hermes API
+            // response or the classifier output; both are soft failures —
+            // leave the post IDs unprocessed so the next run retries them.
             log.error("Instagram classification failed — {} post(s) left unprocessed for retry: {}",
                     postsToClassify.size(), e.getMessage());
         }

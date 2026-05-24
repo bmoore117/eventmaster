@@ -2,6 +2,7 @@ package net.skywall.eventmaster;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
 import java.io.IOException;
@@ -86,7 +87,9 @@ public final class StateStore {
                 }
             }
             return new ConnectorState(root.path("consecutive_failures").asInt(0), bootstrapped);
-        } catch (IOException e) {
+        } catch (IOException | JacksonException e) {
+            // JacksonException is unchecked in Jackson 3.x — catch explicitly
+            // so a malformed connector-state.json doesn't crash the run.
             log.warn("Could not parse {} — assuming fresh connector state", connectorStatePath.getFileName());
             return new ConnectorState(0, Set.of());
         }

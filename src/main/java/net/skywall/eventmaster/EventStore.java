@@ -4,6 +4,7 @@ import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.utils.DateFilters;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 
 import java.io.IOException;
@@ -122,7 +123,9 @@ public final class EventStore {
         }
         try {
             return new ArrayList<>(Json.MAPPER.readValue(Files.readAllBytes(path), EVENT_LIST));
-        } catch (IOException e) {
+        } catch (IOException | JacksonException e) {
+            // JacksonException is unchecked in Jackson 3.x — must be caught
+            // explicitly to honour the "start fresh on malformed JSON" intent.
             log.warn("Could not parse {} — starting fresh", path.getFileName());
             return new ArrayList<>();
         }

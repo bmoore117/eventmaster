@@ -7,6 +7,9 @@ import net.skywall.eventmaster.model.Event;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
@@ -33,6 +36,8 @@ import java.util.regex.Pattern;
  */
 public final class LumaParsers {
 
+    private static final Logger log = LoggerFactory.getLogger(LumaParsers.class);
+
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
 
     private static final Set<String> EVENT_TYPES =
@@ -52,19 +57,27 @@ public final class LumaParsers {
     public static List<Event> parsePage(Document doc, String sourceUrl) {
         Elements ldScripts = doc.select("script[type=application/ld+json]");
         for (Element script : ldScripts) {
-            JsonNode root = Json.MAPPER.readTree(script.data());
-            List<Event> events = fromJsonLd(root, sourceUrl);
-            if (!events.isEmpty()) {
-                return events;
+            try {
+                JsonNode root = Json.MAPPER.readTree(script.data());
+                List<Event> events = fromJsonLd(root, sourceUrl);
+                if (!events.isEmpty()) {
+                    return events;
+                }
+            } catch (JacksonException e) {
+                log.debug("Skipping malformed ld+json on {}: {}", sourceUrl, e.getOriginalMessage());
             }
         }
 
         Element nextData = doc.getElementById("__NEXT_DATA__");
         if (nextData != null) {
-            JsonNode root = Json.MAPPER.readTree(nextData.data());
-            List<Event> events = fromNextData(root, sourceUrl);
-            if (!events.isEmpty()) {
-                return events;
+            try {
+                JsonNode root = Json.MAPPER.readTree(nextData.data());
+                List<Event> events = fromNextData(root, sourceUrl);
+                if (!events.isEmpty()) {
+                    return events;
+                }
+            } catch (JacksonException e) {
+                log.debug("Skipping malformed __NEXT_DATA__ on {}: {}", sourceUrl, e.getOriginalMessage());
             }
         }
 
