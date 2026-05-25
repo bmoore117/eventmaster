@@ -7,8 +7,9 @@ flowchart TD
     Start(["cron: java -jar eventmaster.jar"]) --> Init["Config loads<br/>eventmaster.properties + env<br/>from AppRoot.directory()"]
     Init --> Run["ConnectorRun.execute()"]
 
-    Run --> LoadState["Load persisted state:<br/>• processed_ids.txt<br/>• connector-state.json<br/>&nbsp;&nbsp;(consecutive_failures,<br/>&nbsp;&nbsp;instagram_bootstrapped)<br/>• upcoming_events.json<br/>• past_events.json"]
+    Run --> LoadState["Load persisted state:<br/>• processed_ids.txt<br/>• connector-state.json<br/>&nbsp;&nbsp;(consecutive_failures,<br/>&nbsp;&nbsp;instagram_bootstrapped,<br/>&nbsp;&nbsp;last_warning_codes)<br/>• upcoming_events.json<br/>• past_events.json"]
     LoadState --> TryBlock{{"try { ... }"}}
+    Warnings[/"warnings (List&lt;RunWarning&gt;)<br/>accumulated across all 3 source phases"/]
 
     subgraph GMAIL["1 — Gmail label"]
       direction TB
@@ -37,6 +38,8 @@ flowchart TD
       EnrichG --> AddG --> GLoop
     end
     TryBlock --> Imap
+    Imap -. exception .-> Warnings
+    EP -. exception .-> Warnings
 
     subgraph LUMACAL["2 — Luma calendars"]
       direction TB
@@ -46,6 +49,7 @@ flowchart TD
       LCLoop --> CalFetch --> AddL --> LCLoop
     end
     GLoop --> LCLoop
+    CalFetch -. "LumaFetchException<br/>(top-level page)" .-> Warnings
 
     subgraph IG["3 — Instagram (optional)"]
       direction TB
@@ -75,6 +79,8 @@ flowchart TD
       Cls -- "isEvent & unmatched" --> ParseCls --> AppendIg --> IGdone
     end
     LCLoop --> IGOn
+    SC -. "ScrapeCreatorsException<br/>(per handle)" .-> Warnings
+    ClsFail -. warning .-> Warnings
 
     subgraph ROT["EventStore.rotateAndClassify (in memory)"]
       direction TB
@@ -87,26 +93,35 @@ flowchart TD
 
     R3 --> Health["build Health snapshot<br/>(consecutive_failures = 0)"]
     Health --> Newly{"newlyAdded<br/>non-empty?"}
-    Newly -- no --> Commit
-    Newly -- yes --> Notify["HermesClient.notify<br/>POST signed webhook<br/>(HMAC-SHA256 unless noAuth)"]
-    Notify -- "2xx" --> Commit
-    Notify -- "non-2xx /<br/>network error" -.-> WebhookFail[/"throw<br/>WebhookDeliveryException"/]
+    Newly -- no --> Diff
+    Newly -- yes --> NotifyEv["hermes.notifyEvents<br/>POST signed events webhook<br/>(HMAC-SHA256 unless noAuth)<br/><br/>ATOMIC: failure throws"]
+    NotifyEv -- "2xx" --> Diff
+    NotifyEv -- "non-2xx /<br/>network error" -.-> WebhookFail[/"throw<br/>WebhookDeliveryException"/]
 
-    subgraph Commit["Commit state (only after delivery)"]
+    Warnings --> Diff["WarningDiff.compute<br/>vs last_warning_codes"]
+    Diff --> Changed{"diff.changed?"}
+    Changed -- no --> Commit
+    Changed -- yes --> NotifyWarn["hermes.notifyWarnings<br/>POST signed warnings webhook<br/>{ current[], resolved[] }<br/><br/>BEST-EFFORT: failure logs<br/>and leaves last_warning_codes<br/>unchanged for next-run retry"]
+    NotifyWarn -- "2xx" --> Commit
+    NotifyWarn -. "non-2xx" .-> CommitNoLWC["commit other state<br/>but skip<br/>saveLastWarningCodes"]
+    CommitNoLWC --> OK
+
+    subgraph Commit["Commit state"]
       direction TB
       CW1["saveProcessedIds"]
       CW2["saveInstagramBootstrapped"]
       CW3["writeUpcoming"]
       CW4["writePast"]
       CW5["saveConsecutiveFailures(0)"]
-      CW1 --> CW2 --> CW3 --> CW4 --> CW5
+      CW6["saveLastWarningCodes<br/>(only if warnings<br/>delivery OK / not needed)"]
+      CW1 --> CW2 --> CW3 --> CW4 --> CW5 --> CW6
     end
-    CW5 --> OK(["exit 0"])
+    CW6 --> OK(["exit 0"])
 
-    TryBlock -. exception .-> Catch["loadConsecutiveFailures,<br/>increment,<br/>build error Health"]
+    TryBlock -. exception .-> Catch["loadConsecutiveFailures,<br/>increment,<br/>build error Health<br/>(warnings are NOT sent on<br/>this path — next successful<br/>run will catch up)"]
     WebhookFail -. caught .-> Catch
     Catch --> WasWebhook{"cause =<br/>WebhookDeliveryException?"}
     WasWebhook -- yes --> SkipErr["log: skip error notify<br/>(webhook is the failure)"]
-    WasWebhook -- no --> NotifyErr["HermesClient.notify<br/>(empty events,<br/>hasErrors = true)"]
+    WasWebhook -- no --> NotifyErr["hermes.notifyEvents<br/>(empty events,<br/>hasErrors = true)"]
     SkipErr --> FAIL(["exit 1"])
     NotifyErr --> FAIL

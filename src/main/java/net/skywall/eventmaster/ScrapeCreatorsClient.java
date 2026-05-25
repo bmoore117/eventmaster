@@ -32,7 +32,15 @@ public final class ScrapeCreatorsClient {
         this.apiKey = apiKey;
     }
 
-    /** Fetch the latest page of posts for {@code handle}. Returns an empty list on failure. */
+    /**
+     * Fetch the latest page of posts for {@code handle}.
+     *
+     * <p>Returns an empty list only when the API responded 2xx with no items —
+     * i.e. the handle exists but has nothing new. Hard failures (non-2xx,
+     * network IO, interrupt) raise {@link ScrapeCreatorsException} so the
+     * caller can decide whether to surface them as a {@code RunWarning} or
+     * abort the run.
+     */
     public List<InstagramPost> fetchUserPosts(String handle) {
         String normalizedHandle = normalizeHandle(handle);
         String query = "handle=" + URLEncoder.encode(normalizedHandle, StandardCharsets.UTF_8) + "&trim=true";
@@ -50,21 +58,20 @@ public final class ScrapeCreatorsClient {
         try {
             response = Http.CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (IOException e) {
-            log.warn("ScrapeCreators request failed for @{}: {}", normalizedHandle, e.getMessage());
-            return List.of();
+            throw new ScrapeCreatorsException("scrapecreators_io",
+                    "request failed for @" + normalizedHandle + ": " + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.warn("ScrapeCreators request interrupted for @{}", normalizedHandle);
-            return List.of();
+            throw new ScrapeCreatorsException("scrapecreators_interrupted",
+                    "request interrupted for @" + normalizedHandle);
         }
 
         if (response.statusCode() / 100 != 2) {
             String body = response.body() == null ? "" : response.body();
-            log.warn("ScrapeCreators rejected @{} ({}): {}",
-                    normalizedHandle,
-                    response.statusCode(),
-                    body.length() > 300 ? body.substring(0, 300) : body);
-            return List.of();
+            String snippet = body.length() > 200 ? body.substring(0, 200) : body;
+            throw new ScrapeCreatorsException(
+                    "scrapecreators_http_" + response.statusCode(),
+                    "rejected @" + normalizedHandle + " (" + response.statusCode() + "): " + snippet);
         }
 
         return parsePosts(response.body(), normalizedHandle);

@@ -60,19 +60,28 @@ public final class StateStore {
         return loadConnectorState().instagramBootstrapped();
     }
 
+    public Set<String> loadLastWarningCodes() {
+        return loadConnectorState().lastWarningCodes();
+    }
+
     public void saveConsecutiveFailures(int n) throws IOException {
         ConnectorState current = loadConnectorState();
-        saveConnectorState(new ConnectorState(n, current.instagramBootstrapped()));
+        saveConnectorState(new ConnectorState(n, current.instagramBootstrapped(), current.lastWarningCodes()));
     }
 
     public void saveInstagramBootstrapped(Set<String> accounts) throws IOException {
         ConnectorState current = loadConnectorState();
-        saveConnectorState(new ConnectorState(current.consecutiveFailures(), accounts));
+        saveConnectorState(new ConnectorState(current.consecutiveFailures(), accounts, current.lastWarningCodes()));
+    }
+
+    public void saveLastWarningCodes(Set<String> codes) throws IOException {
+        ConnectorState current = loadConnectorState();
+        saveConnectorState(new ConnectorState(current.consecutiveFailures(), current.instagramBootstrapped(), codes));
     }
 
     private ConnectorState loadConnectorState() {
         if (!Files.exists(connectorStatePath)) {
-            return new ConnectorState(0, Set.of());
+            return new ConnectorState(0, Set.of(), Set.of());
         }
         try {
             JsonNode root = Json.MAPPER.readTree(Files.readAllBytes(connectorStatePath));
@@ -86,12 +95,25 @@ public final class StateStore {
                     }
                 }
             }
-            return new ConnectorState(root.path("consecutive_failures").asInt(0), bootstrapped);
+            Set<String> warningCodes = new HashSet<>();
+            JsonNode codes = root.path("last_warning_codes");
+            if (codes.isArray()) {
+                for (JsonNode code : codes) {
+                    String value = code.asString(null);
+                    if (value != null && !value.isBlank()) {
+                        warningCodes.add(value);
+                    }
+                }
+            }
+            return new ConnectorState(
+                    root.path("consecutive_failures").asInt(0),
+                    bootstrapped,
+                    warningCodes);
         } catch (IOException | JacksonException e) {
             // JacksonException is unchecked in Jackson 3.x — catch explicitly
             // so a malformed connector-state.json doesn't crash the run.
             log.warn("Could not parse {} — assuming fresh connector state", connectorStatePath.getFileName());
-            return new ConnectorState(0, Set.of());
+            return new ConnectorState(0, Set.of(), Set.of());
         }
     }
 
@@ -101,6 +123,9 @@ public final class StateStore {
         body.put("consecutive_failures", state.consecutiveFailures());
         if (!state.instagramBootstrapped().isEmpty()) {
             body.put("instagram_bootstrapped", new ArrayList<>(new TreeSet<>(state.instagramBootstrapped())));
+        }
+        if (!state.lastWarningCodes().isEmpty()) {
+            body.put("last_warning_codes", new ArrayList<>(new TreeSet<>(state.lastWarningCodes())));
         }
         Files.write(connectorStatePath, Json.PRETTY.writeValueAsBytes(body));
     }
@@ -131,5 +156,9 @@ public final class StateStore {
         Files.writeString(path, body, StandardCharsets.UTF_8);
     }
 
-    private record ConnectorState(int consecutiveFailures, Set<String> instagramBootstrapped) {}
+    private record ConnectorState(
+            int consecutiveFailures,
+            Set<String> instagramBootstrapped,
+            Set<String> lastWarningCodes
+    ) {}
 }

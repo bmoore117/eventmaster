@@ -1,6 +1,17 @@
 # Merge into ~/.hermes/config.yaml (under platforms.webhook).
 # INSECURE_NO_AUTH only works when the webhook binds to loopback — not 0.0.0.0.
-# POST body fields: instructions, triggered_at, hasErrors, newEvents, newInstagramPosts, health
+#
+# The eventmaster connector POSTs two distinct payload shapes to this route,
+# discriminated by the X-Eventmaster-Channel header ("events" or "warnings"):
+#
+#   Events  : { instructions, triggered_at, hasErrors, newEvents,
+#               newInstagramPosts, health }
+#   Warnings: { instructions, triggered_at, current, resolved }
+#
+# The prompt below renders both — Hermes substitutes missing fields as empty
+# strings, so an events payload simply leaves current/resolved blank and a
+# warnings payload leaves hasErrors/newEvents/newInstagramPosts/health blank.
+# The agent prompt (agent-prompt.txt) tells the model how to branch.
 
 platforms:
   webhook:
@@ -28,3 +39,9 @@ platforms:
 
             health:
             {health}
+
+            current:
+            {current}
+
+            resolved:
+            {resolved}

@@ -4,6 +4,7 @@ import net.skywall.eventmaster.model.EmailMessage;
 import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.model.Health;
 import net.skywall.eventmaster.model.InstagramPost;
+import net.skywall.eventmaster.model.RunWarning;
 import net.skywall.eventmaster.utils.DateFilters;
 import net.skywall.eventmaster.utils.EmailParser;
 import net.skywall.eventmaster.utils.GmailSource;
@@ -21,7 +22,9 @@ import java.util.Set;
 /**
  * One full connector run: read Gmail + Luma calendars + Instagram posts, dedup,
  * classify, persist, and notify Hermes when there's something new or an error
- * to report.
+ * to report. Source-level failures become {@link RunWarning}s that don't block
+ * other sources or the events webhook; their delivery is a separate, best-effort
+ * webhook call gated on the warning set having changed since the previous run.
  */
 public final class ConnectorRun {
 
@@ -47,15 +50,17 @@ public final class ConnectorRun {
 
         Set<String> processedIds = stateStore.loadProcessedIds();
         Set<String> instagramBootstrapped = new HashSet<>(stateStore.loadInstagramBootstrapped());
+        Set<String> lastWarningCodes = stateStore.loadLastWarningCodes();
         List<Event> upcoming = eventStore.loadUpcoming();
         List<Event> past = eventStore.loadPast();
         List<Event> newEvents = new ArrayList<>();
+        List<RunWarning> warnings = new ArrayList<>();
         int emailsProcessed = 0;
 
         try {
-            emailsProcessed = processGmail(processedIds, newEvents);
-            processLumaCalendars(newEvents);
-            processInstagram(processedIds, instagramBootstrapped, upcoming, newEvents);
+            emailsProcessed = processGmailSafely(processedIds, newEvents, warnings);
+            processLumaCalendarsSafely(newEvents, warnings);
+            processInstagramSafely(processedIds, instagramBootstrapped, upcoming, newEvents, warnings);
 
             EventStore.RotateResult rotated = eventStore.rotateAndClassify(upcoming, past, newEvents);
             List<Event> nextUpcoming = rotated.upcoming();
@@ -63,32 +68,53 @@ public final class ConnectorRun {
             List<Event> newlyAdded = rotated.newlyAdded();
 
             log.info("Run complete: {} email(s) processed, {} event(s) parsed, "
-                            + "{} newly upcoming, {} upcoming total, {} past total",
+                            + "{} newly upcoming, {} upcoming total, {} past total, {} warning(s)",
                     emailsProcessed, newEvents.size(), newlyAdded.size(),
-                    nextUpcoming.size(), nextPast.size());
+                    nextUpcoming.size(), nextPast.size(), warnings.size());
 
             String now = Instant.now().toString();
             Health health = new Health(now, emailsProcessed,
                     nextUpcoming.size(), nextPast.size(),
                     0, null, null);
 
-            // Notify Hermes BEFORE persisting anything. If delivery fails we
-            // throw so the catch block treats it as a run failure: processedIds
-            // and instagramBootstrapped stay unsaved and the new events stay
-            // out of upcoming_events.json, so the next run will re-scrape and
-            // retry the same notification.
+            // 1) Events webhook — ATOMIC. If delivery fails we throw so the
+            //    catch block treats it as a run failure: processedIds,
+            //    instagramBootstrapped, and the new events stay unsaved and
+            //    the next run will re-scrape and retry the same notification.
             if (newlyAdded.isEmpty()) {
-                log.info("No new events — Hermes webhook not sent");
-            } else if (!hermes.notify(now, newlyAdded, List.of(), health)) {
+                log.info("No new events — events webhook not sent");
+            } else if (!hermes.notifyEvents(now, newlyAdded, List.of(), health)) {
                 throw new WebhookDeliveryException(
-                        "Hermes webhook delivery failed for " + newlyAdded.size() + " new event(s)");
+                        "Hermes events webhook delivery failed for " + newlyAdded.size() + " new event(s)");
             }
 
+            // 2) Warnings webhook — BEST-EFFORT. Only fires when the warning
+            //    set has changed since the previous run (add, remove, or
+            //    change), so we don't spam the agent every cron tick while a
+            //    source is degraded. If delivery fails, leave
+            //    last_warning_codes alone so next run retries the same diff.
+            WarningDiff diff = WarningDiff.compute(warnings, lastWarningCodes);
+            boolean warningsDelivered = true;
+            if (diff.changed()) {
+                log.info("Warnings changed since last run — sending warnings webhook ({} current, {} resolved)",
+                        diff.currentSorted().size(), diff.resolved().size());
+                warningsDelivered = hermes.notifyWarnings(now, diff.currentSorted(), diff.resolved());
+                if (!warningsDelivered) {
+                    log.warn("Warnings webhook delivery failed — last_warning_codes left unchanged, will retry next run");
+                }
+            }
+
+            // 3) Commit state. last_warning_codes only advances if its
+            //    delivery succeeded (or the diff was empty in the first
+            //    place); everything else commits unconditionally.
             stateStore.saveProcessedIds(processedIds);
             stateStore.saveInstagramBootstrapped(instagramBootstrapped);
             eventStore.writeUpcoming(nextUpcoming);
             eventStore.writePast(nextPast);
             stateStore.saveConsecutiveFailures(0);
+            if (warningsDelivered) {
+                stateStore.saveLastWarningCodes(diff.currentCodes());
+            }
             return 0;
 
         } catch (Exception e) {
@@ -112,60 +138,72 @@ public final class ConnectorRun {
             if (e instanceof WebhookDeliveryException) {
                 log.warn("Skipping Hermes error notification — webhook itself is the failure mode");
             } else {
-                hermes.notify(now, List.of(), List.of(), errorHealth);
+                hermes.notifyEvents(now, List.of(), List.of(), errorHealth);
             }
             return 1;
         }
     }
 
-    /** Sentinel exception: success-path webhook delivery failed. */
+    /** Sentinel exception: success-path events webhook delivery failed. */
     private static final class WebhookDeliveryException extends RuntimeException {
         WebhookDeliveryException(String message) {
             super(message);
         }
     }
 
-    private int processGmail(Set<String> processedIds, List<Event> newEvents) throws Exception {
-        List<EmailMessage> messages = GmailSource.readLabel(
-                config.gmailUser(), config.gmailAppPassword(), config.gmailLabel());
-
-        int emailsProcessed = 0;
-        for (EmailMessage msg : messages) {
-            String msgId = msg.messageId();
-            if (processedIds.contains(msgId)) {
-                continue;
-            }
-
-            log.info("Processing: [{}] from {}", msg.subject(), msg.from());
-            List<Event> events = EmailParser.parse(msg);
-            if (!events.isEmpty()) {
-                newEvents.addAll(events);
-                log.info("  -> extracted {} event(s) via {}", events.size(), events.getFirst().parseMethod());
-            } else {
-                log.info("  -> no events found in this email");
-            }
-            processedIds.add(msgId);
-            emailsProcessed++;
+    private int processGmailSafely(
+            Set<String> processedIds, List<Event> newEvents, List<RunWarning> warnings
+    ) {
+        try {
+            return processGmail(processedIds, newEvents);
+        } catch (Exception e) {
+            // Phase-level catch: any successfully parsed messages before the
+            // throw are already in newEvents / processedIds; the failing
+            // message stays unprocessed and retries next run.
+            String code = classifyGmailError(e);
+            log.error("Gmail phase failed ({}): {}", code, e.getMessage(), e);
+            warnings.add(new RunWarning("gmail", code, safeMessage(e)));
+            return 0;
         }
-        return emailsProcessed;
     }
 
-    private void processLumaCalendars(List<Event> newEvents) {
+    private static String classifyGmailError(Throwable e) {
+        String name = e.getClass().getSimpleName();
+        String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+        if (name.contains("Authentication") || message.contains("authentication")) {
+            return "gmail_auth_failed";
+        }
+        if (name.contains("Connect") || message.contains("connect")) {
+            return "gmail_connect_failed";
+        }
+        if (message.contains("label not found")) {
+            return "gmail_label_missing";
+        }
+        return "gmail_error";
+    }
+
+    private void processLumaCalendarsSafely(List<Event> newEvents, List<RunWarning> warnings) {
         for (String slug : config.lumaCalendars()) {
             log.info("Fetching from Luma calendar: {}", slug);
-            List<Event> events = LumaScraper.fetchCalendar(slug);
-            if (!events.isEmpty()) {
-                newEvents.addAll(events);
-                log.info("  -> extracted {} event(s) via {}", events.size(), events.getFirst().parseMethod());
+            try {
+                List<Event> events = LumaScraper.fetchCalendar(slug);
+                if (!events.isEmpty()) {
+                    newEvents.addAll(events);
+                    log.info("  -> extracted {} event(s) via {}", events.size(), events.getFirst().parseMethod());
+                }
+            } catch (LumaFetchException e) {
+                log.error("Luma calendar {} failed ({}): {}", slug, e.code(), e.getMessage());
+                warnings.add(new RunWarning("luma:" + slug, e.code(), safeMessage(e)));
             }
         }
     }
 
-    private void processInstagram(
+    private void processInstagramSafely(
             Set<String> processedIds,
             Set<String> bootstrappedAccounts,
             List<Event> upcomingEvents,
-            List<Event> newEvents
+            List<Event> newEvents,
+            List<RunWarning> warnings
     ) {
         if (!config.instagramEnabled()) {
             return;
@@ -176,7 +214,14 @@ public final class ConnectorRun {
 
         for (String handle : config.instagramAccounts()) {
             log.info("Fetching Instagram posts for @{}", handle);
-            List<InstagramPost> posts = client.fetchUserPosts(handle);
+            List<InstagramPost> posts;
+            try {
+                posts = client.fetchUserPosts(handle);
+            } catch (ScrapeCreatorsException e) {
+                log.error("ScrapeCreators failed for @{} ({}): {}", handle, e.code(), e.getMessage());
+                warnings.add(new RunWarning("instagram:" + handle, e.code(), safeMessage(e)));
+                continue;
+            }
             if (posts.isEmpty()) {
                 continue;
             }
@@ -243,11 +288,43 @@ public final class ConnectorRun {
                 processedIds.add(post.id());
             }
         } catch (IOException | JacksonException e) {
-            // JacksonException covers malformed JSON from the Hermes API
-            // response or the classifier output; both are soft failures —
-            // leave the post IDs unprocessed so the next run retries them.
+            // Classifier-level soft failure: leave the post IDs unprocessed
+            // so the next run retries them, and emit a warning so the agent
+            // sees the degradation.
             log.error("Instagram classification failed — {} post(s) left unprocessed for retry: {}",
                     postsToClassify.size(), e.getMessage());
+            String code = e instanceof JacksonException ? "classifier_malformed_json" : "classifier_io";
+            warnings.add(new RunWarning("instagram_classifier", code, safeMessage(e)));
         }
+    }
+
+    private int processGmail(Set<String> processedIds, List<Event> newEvents) throws Exception {
+        List<EmailMessage> messages = GmailSource.readLabel(
+                config.gmailUser(), config.gmailAppPassword(), config.gmailLabel());
+
+        int emailsProcessed = 0;
+        for (EmailMessage msg : messages) {
+            String msgId = msg.messageId();
+            if (processedIds.contains(msgId)) {
+                continue;
+            }
+
+            log.info("Processing: [{}] from {}", msg.subject(), msg.from());
+            List<Event> events = EmailParser.parse(msg);
+            if (!events.isEmpty()) {
+                newEvents.addAll(events);
+                log.info("  -> extracted {} event(s) via {}", events.size(), events.getFirst().parseMethod());
+            } else {
+                log.info("  -> no events found in this email");
+            }
+            processedIds.add(msgId);
+            emailsProcessed++;
+        }
+        return emailsProcessed;
+    }
+
+    private static String safeMessage(Throwable e) {
+        String msg = e.getMessage();
+        return msg == null || msg.isBlank() ? e.getClass().getSimpleName() : msg;
     }
 }

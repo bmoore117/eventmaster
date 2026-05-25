@@ -47,21 +47,67 @@ accident during refactors:
   *drops* them from "past" classification (returns `false`). So unknown-date
   events bias toward staying in `upcoming` — the right tradeoff for a
   notification system but a footgun if you change either method.
-- **Webhook delivery gates state commits.** On the success path
-  `HermesClient.notify` is called *before* anything is persisted. If it
-  returns `false` (non-2xx, network error, missing prompt file, etc.),
-  `ConnectorRun` throws `WebhookDeliveryException`, which the catch block
-  treats as a run failure: `consecutive_failures` is incremented and
-  `processedIds`, `instagramBootstrapped`, `upcoming_events.json`,
-  `past_events.json`, and the zeroed failure counter are all left unsaved,
-  so the next run re-scrapes and retries the same notification. The catch
-  block intentionally skips the follow-up error notification in this case to
-  avoid hammering a webhook that's already known to be down.
-- **Webhook only fires when there's something to say.** On a successful run
-  with zero `newlyAdded`, Hermes is *not* notified (and state still
-  commits). On any other failure path, Hermes *is* notified with
-  `hasErrors=true` and the prior-failure counter incremented — the only
-  signal of consecutive-failure escalation to the agent.
+- **Events and warnings are separate webhook calls.** A successful run can
+  fire up to two webhooks, in order: events (`WebhookPayload`) and warnings
+  (`WarningsPayload`). The agent receives "what's new" and "what's degraded"
+  as distinct messages; an events payload never carries warning material and
+  vice versa.
+- **Events webhook gates state commits; warnings webhook is best-effort.**
+  `hermes.notifyEvents` runs *before* any state writes. If it returns
+  `false`, `ConnectorRun` throws `WebhookDeliveryException` and the catch
+  block treats it as a run failure: `processedIds`, `instagramBootstrapped`,
+  `upcoming_events.json`, `past_events.json`, and the zeroed failure counter
+  are all left unsaved, so the next run re-scrapes and retries the same
+  notification. The catch intentionally skips the follow-up error
+  notification in this case to avoid hammering a webhook that's already
+  known to be down. The warnings webhook runs *after* events succeeds but
+  is best-effort: a failure logs loudly but does not undo the committed
+  events delivery — instead, `last_warning_codes` is left unchanged so the
+  next run sees the same warning diff and retries.
+- **Warnings webhook fires on warning-set change, not every run.**
+  `ConnectorRun` computes `WarningDiff.compute(currentWarnings,
+  loadLastWarningCodes())`. The warnings webhook only fires when the
+  dedup-key set differs from the previous run — a new failure appearing, a
+  previously firing failure recovering, or one code swapping for another at
+  the same source. Hourly crons against a chronically degraded source
+  therefore produce one notification when it breaks and one when it
+  recovers, not 24 per day. The payload carries `current` (full sorted
+  warning list) and `resolved` (codes that were firing last run and now
+  aren't), so the agent can announce recoveries.
+- **Events webhook only fires when there's something to say.** On a
+  successful run with zero `newlyAdded`, the events webhook is *not*
+  notified (state still commits, warnings webhook may still fire if the
+  warning set changed). On any top-level exception, the events channel is
+  used for the error notification (`hasErrors=true`, prior-failure counter
+  incremented). Warnings are not sent in the error path — they'll catch up
+  on the next successful run.
+- **`consecutive_failures` tracks run-level failures only.** A source-level
+  degradation (Gmail IMAP down, ScrapeCreators 402, a Luma slug returning
+  500) becomes a `RunWarning` and does *not* bump `consecutive_failures`.
+  Only a top-level exception (state write failure, unexpected code path) or
+  an events webhook delivery failure increments it. This keeps the 8-run
+  escalation alarm meaningful — it fires when the connector itself is
+  broken end-to-end, not when one of three sources is having a bad day.
+  Source-level escalation policy lives in the Hermes agent's reaction to
+  the warnings channel.
+- **The Hermes agent prompt knows about both payload shapes.**
+  `hermes/agent-prompt.txt` branches on which fields are populated: events
+  payloads carry `newEvents` + `hasErrors` + `health`; warnings payloads
+  carry `current[]` + `resolved[]`. The single agent prompt file serves
+  both channels (the `instructions` field on both payload records reads
+  from the same `agentPromptPath`). Keep this branch logic in sync with
+  the `WebhookPayload` and `WarningsPayload` record shapes — changing a
+  field name on either record without updating the prompt will silently
+  produce useless agent replies.
+- **Source phases are isolated.** `processGmailSafely`,
+  `processLumaCalendarsSafely`, and `processInstagramSafely` each wrap
+  their work in try/catch. A failure in one source never prevents the
+  others from running. `ScrapeCreatorsClient.fetchUserPosts` and
+  `LumaScraper.fetchCalendar` throw typed exceptions
+  (`ScrapeCreatorsException`, `LumaFetchException`) on hard failure so the
+  caller can map them to `RunWarning`s without having to disambiguate
+  "empty because broken" from "empty because nothing new". An empty list
+  from either method now strictly means "API said nothing matched".
 - **Dedup uses hint-set intersection, not a single key.** `EventStore.eventKeys`
   emits up to three identity hints per event — `luma:<normalised-url>` (only
   for real Luma hosts), `td:<normalised-title>|<date>`, and

@@ -14,7 +14,6 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,8 +31,11 @@ public final class LumaScraper {
 
     /** Fetch and parse a single Luma event page. Returns an empty list on any failure. */
     public static List<Event> fetchEvent(String url) {
-        String html = fetchHtml(url);
-        if (html == null) {
+        String html;
+        try {
+            html = fetchHtml(url);
+        } catch (LumaFetchException e) {
+            log.warn("Failed to fetch Luma event page {}: {}", url, e.getMessage());
             return List.of();
         }
         Document doc = Jsoup.parse(html, url);
@@ -43,6 +45,11 @@ public final class LumaScraper {
     /**
      * Fetch a Luma calendar/group page, extract its featured events, and follow
      * each event URL to get the full details (descriptions, etc.).
+     *
+     * <p>Throws {@link LumaFetchException} when the top-level calendar page
+     * itself fails to load (non-2xx, network IO, interrupt). Per-event-page
+     * failures inside the calendar fetch are still soft — the stub from the
+     * calendar listing is kept.
      */
     public static List<Event> fetchCalendar(String slugOrUrl) {
         String url = slugOrUrl.startsWith("http://") || slugOrUrl.startsWith("https://")
@@ -50,10 +57,6 @@ public final class LumaScraper {
                 : "https://lu.ma/" + slugOrUrl;
 
         String html = fetchHtml(url);
-        if (html == null) {
-            log.warn("Failed to fetch Luma calendar {}", url);
-            return List.of();
-        }
 
         Document doc = Jsoup.parse(html, url);
         List<Event> stubs = LumaParsers.parsePage(doc, url);
@@ -102,16 +105,16 @@ public final class LumaScraper {
         try {
             HttpResponse<String> resp = Http.CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() / 100 != 2) {
-                log.warn("Failed to fetch Luma page {} — HTTP {}", url, resp.statusCode());
-                return null;
+                throw new LumaFetchException("luma_http_" + resp.statusCode(),
+                        "fetch " + url + " returned HTTP " + resp.statusCode());
             }
             return resp.body();
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            log.warn("Failed to fetch Luma page {}: {}", url, e.getMessage());
-            return null;
+        } catch (IOException e) {
+            throw new LumaFetchException("luma_io",
+                    "fetch " + url + " failed: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new LumaFetchException("luma_interrupted", "fetch " + url + " interrupted");
         }
     }
 }

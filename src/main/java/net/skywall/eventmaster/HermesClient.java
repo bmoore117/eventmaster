@@ -3,6 +3,8 @@ package net.skywall.eventmaster;
 import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.model.Health;
 import net.skywall.eventmaster.model.InstagramPost;
+import net.skywall.eventmaster.model.RunWarning;
+import net.skywall.eventmaster.model.WarningsPayload;
 import net.skywall.eventmaster.model.WebhookPayload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,6 +69,14 @@ public final class HermesClient {
         );
     }
 
+    public WarningsPayload buildWarningsPayload(
+            String triggeredAt,
+            List<RunWarning> current,
+            List<String> resolved
+    ) throws IOException {
+        return new WarningsPayload(loadAgentPrompt(), triggeredAt, current, resolved);
+    }
+
     /** Compute the HMAC-SHA256 of {@code body} keyed by {@code secret}, hex-encoded. */
     public static String signature(byte[] body, String secret) {
         try {
@@ -78,8 +88,17 @@ public final class HermesClient {
         }
     }
 
-    /** POST the payload to the configured route. Returns true on a 2xx response. */
+    /** POST an events payload to the configured route. Returns true on a 2xx response. */
     public boolean post(WebhookPayload payload) {
+        return postBody(Json.COMPACT.writeValueAsBytes(payload), payload.triggeredAt(), "events");
+    }
+
+    /** POST a warnings payload to the configured route. Returns true on a 2xx response. */
+    public boolean post(WarningsPayload payload) {
+        return postBody(Json.COMPACT.writeValueAsBytes(payload), payload.triggeredAt(), "warnings");
+    }
+
+    private boolean postBody(byte[] body, String requestId, String channel) {
         if (!webhook.enabled()) {
             log.error("Hermes webhook disabled (HERMES_WEBHOOK_ENABLED)");
             return false;
@@ -89,14 +108,12 @@ public final class HermesClient {
             return false;
         }
 
-        byte[] body;
-        body = Json.COMPACT.writeValueAsBytes(payload);
-
         HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(webhook.url()))
                 .timeout(POST_TIMEOUT)
                 .header("Content-Type", "application/json")
-                .header("X-Request-ID", payload.triggeredAt())
+                .header("X-Request-ID", requestId)
+                .header("X-Eventmaster-Channel", channel)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body));
 
         if (!webhook.noAuth()) {
@@ -107,28 +124,29 @@ public final class HermesClient {
         try {
             resp = Http.CLIENT.send(reqBuilder.build(), HttpResponse.BodyHandlers.ofString());
         } catch (IOException e) {
-            log.error("Hermes webhook request failed: {}", e.getMessage());
+            log.error("Hermes {} webhook request failed: {}", channel, e.getMessage());
             return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("Hermes webhook request interrupted");
+            log.error("Hermes {} webhook request interrupted", channel);
             return false;
         }
 
         if (resp.statusCode() / 100 == 2) {
-            log.info("Hermes webhook accepted ({})", resp.statusCode());
+            log.info("Hermes {} webhook accepted ({})", channel, resp.statusCode());
             return true;
         }
 
         String bodyText = resp.body() == null ? "" : resp.body();
-        log.error("Hermes webhook rejected ({}): {}",
+        log.error("Hermes {} webhook rejected ({}): {}",
+                channel,
                 resp.statusCode(),
                 bodyText.length() > 500 ? bodyText.substring(0, 500) : bodyText);
         return false;
     }
 
-    /** Convenience: build + post. Logs the result. Returns true on a 2xx response. */
-    public boolean notify(
+    /** Build + post the events payload. Returns true on a 2xx response. */
+    public boolean notifyEvents(
             String triggeredAt,
             List<Event> newEvents,
             List<InstagramPost> newInstagramPosts,
@@ -144,8 +162,30 @@ public final class HermesClient {
 
         boolean ok = post(payload);
         if (ok) {
-            log.info("Notified Hermes: {} new event(s), {} new Instagram post(s), hasErrors={}",
+            log.info("Notified Hermes (events): {} new event(s), {} new Instagram post(s), hasErrors={}",
                     newEvents.size(), newInstagramPosts.size(), payload.hasErrors());
+        }
+        return ok;
+    }
+
+    /** Build + post the warnings payload. Returns true on a 2xx response. */
+    public boolean notifyWarnings(
+            String triggeredAt,
+            List<RunWarning> current,
+            List<String> resolved
+    ) {
+        WarningsPayload payload;
+        try {
+            payload = buildWarningsPayload(triggeredAt, current, resolved);
+        } catch (IOException e) {
+            log.error("{}", e.getMessage());
+            return false;
+        }
+
+        boolean ok = post(payload);
+        if (ok) {
+            log.info("Notified Hermes (warnings): {} current, {} resolved",
+                    current.size(), resolved.size());
         }
         return ok;
     }

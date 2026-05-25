@@ -7,9 +7,10 @@ import org.slf4j.LoggerFactory;
  * Entry point and CLI dispatch.
  *
  * <pre>
- *   java -jar eventmaster.jar              # run the connector
- *   java -jar eventmaster.jar test         # POST a synthetic Hermes payload
- *   java -jar eventmaster.jar test --error # simulate a scraper failure
+ *   java -jar eventmaster.jar                  # run the connector
+ *   java -jar eventmaster.jar test             # POST a synthetic events payload
+ *   java -jar eventmaster.jar test --error     # simulate a scraper failure
+ *   java -jar eventmaster.jar test --warnings  # POST a synthetic warnings payload
  *   java -jar eventmaster.jar test --dry-run
  * </pre>
  *
@@ -56,10 +57,12 @@ public final class App {
 
     private static int runTestCommand(Config config, String[] args) {
         boolean simulateError = false;
+        boolean simulateWarnings = false;
         boolean dryRun = false;
         for (int i = 1; i < args.length; i++) {
             switch (args[i]) {
                 case "--error" -> simulateError = true;
+                case "--warnings" -> simulateWarnings = true;
                 case "--dry-run" -> dryRun = true;
                 case "-h", "--help" -> {
                     printTestHelp();
@@ -71,23 +74,34 @@ public final class App {
                 }
             }
         }
-        return HermesTest.run(new HermesClient(config), simulateError, dryRun);
+        if (simulateError && simulateWarnings) {
+            System.err.println("--error and --warnings are mutually exclusive");
+            return 2;
+        }
+        HermesClient client = new HermesClient(config);
+        if (simulateWarnings) {
+            return HermesTest.runWarnings(client, dryRun);
+        }
+        return HermesTest.run(client, simulateError, dryRun);
     }
 
     private static void printHelp() {
         System.out.println("""
                 Usage:
-                  java -jar eventmaster.jar                 Run the Gmail + Luma fetch and notify Hermes.
-                  java -jar eventmaster.jar test            POST a synthetic webhook payload.
-                  java -jar eventmaster.jar test --error    Simulate a scraper failure.
-                  java -jar eventmaster.jar test --dry-run  Print the JSON payload without POSTing.
+                  java -jar eventmaster.jar                  Run the Gmail + Luma fetch and notify Hermes.
+                  java -jar eventmaster.jar test             POST a synthetic events webhook payload.
+                  java -jar eventmaster.jar test --error     Simulate a scraper failure.
+                  java -jar eventmaster.jar test --warnings  POST a synthetic warnings webhook payload.
+                  java -jar eventmaster.jar test --dry-run   Print the JSON payload without POSTing.
                 """);
     }
 
     private static void printTestHelp() {
         System.out.println("""
-                Usage: java -jar eventmaster.jar test [--error] [--dry-run]
-                  --error     Simulate a failed scraper run (hasErrors=true, empty newEvents).
+                Usage: java -jar eventmaster.jar test [--error | --warnings] [--dry-run]
+                  --error     Simulate a failed scraper run (events channel, hasErrors=true, empty newEvents).
+                  --warnings  Simulate a source-level warning transition (warnings channel,
+                              one current + one resolved entry). Mutually exclusive with --error.
                   --dry-run   Print the JSON payload to stdout without POSTing.
                 """);
     }

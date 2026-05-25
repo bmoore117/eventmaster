@@ -2,6 +2,8 @@ package net.skywall.eventmaster;
 
 import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.model.Health;
+import net.skywall.eventmaster.model.RunWarning;
+import net.skywall.eventmaster.model.WarningsPayload;
 import net.skywall.eventmaster.model.WebhookPayload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +26,7 @@ public final class HermesTest {
     private HermesTest() {}
 
     public static int run(HermesClient client, boolean simulateError, boolean dryRun) {
-        log.info("--- Hermes webhook test (error={}, dry_run={}) ---", simulateError, dryRun);
+        log.info("--- Hermes events webhook test (error={}, dry_run={}) ---", simulateError, dryRun);
         String url = client.webhook().url();
         log.info("Target: {}", (url == null || url.isBlank()) ? "(not configured)" : url);
 
@@ -48,6 +50,39 @@ public final class HermesTest {
 
         if (client.post(payload)) {
             log.info("Test webhook succeeded (hasErrors={})", payload.hasErrors());
+            return 0;
+        }
+
+        return 1;
+    }
+
+    public static int runWarnings(HermesClient client, boolean dryRun) {
+        log.info("--- Hermes warnings webhook test (dry_run={}) ---", dryRun);
+        String url = client.webhook().url();
+        log.info("Target: {}", (url == null || url.isBlank()) ? "(not configured)" : url);
+
+        List<RunWarning> current = sampleCurrentWarnings();
+        List<String> resolved = sampleResolvedWarnings();
+        String triggeredAt = Instant.now().toString();
+
+        WarningsPayload payload;
+        try {
+            payload = client.buildWarningsPayload(triggeredAt, current, resolved);
+        } catch (IOException e) {
+            log.error("{}", e.getMessage());
+            return 1;
+        }
+
+        if (dryRun) {
+            System.out.println(Json.PRETTY.writeValueAsString(payload));
+            log.info("Dry run - warnings payload printed, not sent ({} current, {} resolved)",
+                    current.size(), resolved.size());
+            return 0;
+        }
+
+        if (client.post(payload)) {
+            log.info("Test warnings webhook succeeded ({} current, {} resolved)",
+                    current.size(), resolved.size());
             return 0;
         }
 
@@ -80,5 +115,17 @@ public final class HermesTest {
                     "Synthetic error from fetch_events.py test --error", now);
         }
         return new Health(now, 0, 1, 0, 0, null, null);
+    }
+
+    private static List<RunWarning> sampleCurrentWarnings() {
+        return List.of(
+                new RunWarning("instagram:beachrepublicans", "scrapecreators_402",
+                        "[TEST] Synthetic: rejected @beachrepublicans (402): out of credits"),
+                new RunWarning("luma:FTLYR", "luma_http_502",
+                        "[TEST] Synthetic: fetch https://lu.ma/FTLYR returned HTTP 502"));
+    }
+
+    private static List<String> sampleResolvedWarnings() {
+        return List.of("gmail|gmail_connect_failed");
     }
 }
