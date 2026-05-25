@@ -45,7 +45,10 @@ accident during refactors:
   entirely. The timestamp lives in `connector-state.json` as
   `instagram_last_fetched_at` and advances when a fetch cycle completes
   (whether or not individual handles returned errors). Set the interval to
-  `0` to disable throttling and fetch on every run.
+  `0` to disable throttling and fetch on every run. When a throttled run
+  skips the Instagram phase, any Instagram-related codes in
+  `last_warning_codes` are carried forward in `WarningDiff` rather than
+  reported as resolved — "didn't check" must not look like "recovered".
 - **Classifier failures are atomic.** If the Hermes API call throws, the
   queued post IDs are *not* added to `processedIds`, so the same posts retry
   next run. Conversely, on success every post in the batch is marked seen

@@ -97,7 +97,12 @@ public final class ConnectorRun {
             //    change), so we don't spam the agent every cron tick while a
             //    source is degraded. If delivery fails, leave
             //    last_warning_codes alone so next run retries the same diff.
-            WarningDiff diff = WarningDiff.compute(warnings, lastWarningCodes);
+            boolean instagramFetchThrottled = config.instagramEnabled()
+                    && !instagramFetched
+                    && !InstagramFetchThrottle.shouldFetch(
+                            instagramLastFetchedAt, Instant.now(), config.instagramFetchIntervalHours());
+            WarningDiff diff = WarningDiff.compute(
+                    warnings, lastWarningCodes, instagramFetchThrottled);
             boolean warningsDelivered = true;
             if (diff.changed()) {
                 log.info("Warnings changed since last run — sending warnings webhook ({} current, {} resolved)",
