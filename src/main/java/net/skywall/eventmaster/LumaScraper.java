@@ -61,7 +61,7 @@ public final class LumaScraper {
             return List.of();
         }
 
-        String today = LocalDate.now(ZoneOffset.UTC).toString();
+        String today = LocalDate.now().toString();
         List<Event> upcomingStubs = stubs.stream()
                 .filter(s -> s.date() == null || s.date().compareTo(today) >= 0)
                 .toList();

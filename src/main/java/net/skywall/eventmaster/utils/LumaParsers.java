@@ -12,11 +12,7 @@ import org.slf4j.LoggerFactory;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -276,9 +272,10 @@ public final class LumaParsers {
     }
 
     private static Optional<LocalDateTime> parseIso(String s) {
+        Instant now = Instant.now();
         try { return Optional.of(OffsetDateTime.parse(s).toLocalDateTime()); } catch (DateTimeParseException _) {}
         try { return Optional.of(LocalDateTime.parse(s)); } catch (DateTimeParseException _) {}
-        try { return Optional.of(Instant.parse(s).atOffset(ZoneOffset.UTC).toLocalDateTime()); } catch (DateTimeParseException _) {}
+        try { return Optional.of(Instant.parse(s).atOffset(ZoneOffset.systemDefault().getRules().getOffset(now)).toLocalDateTime()); } catch (DateTimeParseException _) {}
         try { return Optional.of(LocalDate.parse(s).atStartOfDay()); } catch (DateTimeParseException _) {}
         return Optional.empty();
     }
