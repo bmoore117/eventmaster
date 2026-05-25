@@ -2,7 +2,6 @@ package net.skywall.eventmaster;
 
 import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.model.Health;
-import net.skywall.eventmaster.model.InstagramPost;
 import net.skywall.eventmaster.model.RunWarning;
 import net.skywall.eventmaster.model.WarningsPayload;
 import net.skywall.eventmaster.model.WebhookPayload;
@@ -56,7 +55,6 @@ public final class HermesClient {
     public WebhookPayload buildPayload(
             String triggeredAt,
             List<Event> newEvents,
-            List<InstagramPost> newInstagramPosts,
             Health health
     ) throws IOException {
         return new WebhookPayload(
@@ -64,7 +62,6 @@ public final class HermesClient {
                 triggeredAt,
                 health.hasErrors(),
                 newEvents,
-                newInstagramPosts,
                 health
         );
     }
@@ -149,12 +146,11 @@ public final class HermesClient {
     public boolean notifyEvents(
             String triggeredAt,
             List<Event> newEvents,
-            List<InstagramPost> newInstagramPosts,
             Health health
     ) {
         WebhookPayload payload;
         try {
-            payload = buildPayload(triggeredAt, newEvents, newInstagramPosts, health);
+            payload = buildPayload(triggeredAt, newEvents, health);
         } catch (IOException e) {
             log.error("{}", e.getMessage());
             return false;
@@ -162,8 +158,8 @@ public final class HermesClient {
 
         boolean ok = post(payload);
         if (ok) {
-            log.info("Notified Hermes (events): {} new event(s), {} new Instagram post(s), hasErrors={}",
-                    newEvents.size(), newInstagramPosts.size(), payload.hasErrors());
+            log.info("Notified Hermes (events): {} new event(s), hasErrors={}",
+                    newEvents.size(), payload.hasErrors());
         }
         return ok;
     }

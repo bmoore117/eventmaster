@@ -83,7 +83,7 @@ public final class ConnectorRun {
             //    the next run will re-scrape and retry the same notification.
             if (newlyAdded.isEmpty()) {
                 log.info("No new events — events webhook not sent");
-            } else if (!hermes.notifyEvents(now, newlyAdded, List.of(), health)) {
+            } else if (!hermes.notifyEvents(now, newlyAdded, health)) {
                 throw new WebhookDeliveryException(
                         "Hermes events webhook delivery failed for " + newlyAdded.size() + " new event(s)");
             }
@@ -138,7 +138,7 @@ public final class ConnectorRun {
             if (e instanceof WebhookDeliveryException) {
                 log.warn("Skipping Hermes error notification — webhook itself is the failure mode");
             } else {
-                hermes.notifyEvents(now, List.of(), List.of(), errorHealth);
+                hermes.notifyEvents(now, List.of(), errorHealth);
             }
             return 1;
         }

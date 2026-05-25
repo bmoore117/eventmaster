@@ -4,14 +4,13 @@
 # The eventmaster connector POSTs two distinct payload shapes to this route,
 # discriminated by the X-Eventmaster-Channel header ("events" or "warnings"):
 #
-#   Events  : { instructions, triggered_at, hasErrors, newEvents,
-#               newInstagramPosts, health }
+#   Events  : { instructions, triggered_at, hasErrors, newEvents, health }
 #   Warnings: { instructions, triggered_at, current, resolved }
 #
 # The prompt below renders both — Hermes substitutes missing fields as empty
 # strings, so an events payload simply leaves current/resolved blank and a
-# warnings payload leaves hasErrors/newEvents/newInstagramPosts/health blank.
-# The agent prompt (agent-prompt.txt) tells the model how to branch.
+# warnings payload leaves hasErrors/newEvents/health blank. The agent prompt
+# (agent-prompt.txt) tells the model how to branch.
 
 platforms:
   webhook:
@@ -33,9 +32,6 @@ platforms:
 
             newEvents:
             {newEvents}
-
-            newInstagramPosts:
-            {newInstagramPosts}
 
             health:
             {health}
