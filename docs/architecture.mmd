@@ -7,7 +7,7 @@ flowchart TD
     Start(["cron: java -jar eventmaster.jar"]) --> Init["Config loads<br/>eventmaster.properties + env<br/>from AppRoot.directory()"]
     Init --> Run["ConnectorRun.execute()"]
 
-    Run --> LoadState["Load persisted state:<br/>• processed_ids.txt<br/>• connector-state.json<br/>&nbsp;&nbsp;(consecutive_failures,<br/>&nbsp;&nbsp;instagram_bootstrapped,<br/>&nbsp;&nbsp;last_warning_codes)<br/>• upcoming_events.json<br/>• past_events.json"]
+    Run --> LoadState["Load persisted state:<br/>• processed_ids.txt<br/>• connector-state.json<br/>&nbsp;&nbsp;(consecutive_failures,<br/>&nbsp;&nbsp;instagram_bootstrapped,<br/>&nbsp;&nbsp;last_warning_codes,<br/>&nbsp;&nbsp;instagram_last_fetched_at)<br/>• upcoming_events.json<br/>• past_events.json"]
     LoadState --> TryBlock{{"try { ... }"}}
     Warnings[/"warnings (List&lt;RunWarning&gt;)<br/>accumulated across all 3 source phases"/]
 
@@ -54,6 +54,8 @@ flowchart TD
     subgraph IG["3 — Instagram (optional)"]
       direction TB
       IGOn{"instagramEnabled()?"}
+      Throttle{"within<br/>INSTAGRAM_FETCH_INTERVAL_HOURS?"}
+      SkipIg["log: skip Instagram fetch<br/>(global throttle)"]
       IGLoop[/"for each handle"/]
       SC["ScrapeCreatorsClient<br/>.fetchUserPosts"]
       Boot{"handle in<br/>instagramBootstrapped?"}
@@ -68,7 +70,9 @@ flowchart TD
       AppendIg["append → newEvents,<br/>mark classified IDs seen"]
 
       IGOn -- no --> IGdone([done])
-      IGOn -- yes --> IGLoop --> SC --> Boot
+      IGOn -- yes --> Throttle
+      Throttle -- yes --> SkipIg --> IGdone
+      Throttle -- no --> IGLoop --> SC --> Boot
       Boot -- no --> BootMark --> IGLoop
       Boot -- yes --> Queue --> IGLoop
       IGLoop --> Any

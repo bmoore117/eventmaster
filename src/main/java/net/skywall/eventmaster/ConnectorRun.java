@@ -51,16 +51,20 @@ public final class ConnectorRun {
         Set<String> processedIds = stateStore.loadProcessedIds();
         Set<String> instagramBootstrapped = new HashSet<>(stateStore.loadInstagramBootstrapped());
         Set<String> lastWarningCodes = stateStore.loadLastWarningCodes();
+        String instagramLastFetchedAt = stateStore.loadInstagramLastFetchedAt();
         List<Event> upcoming = eventStore.loadUpcoming();
         List<Event> past = eventStore.loadPast();
         List<Event> newEvents = new ArrayList<>();
         List<RunWarning> warnings = new ArrayList<>();
         int emailsProcessed = 0;
+        boolean instagramFetched;
 
         try {
             emailsProcessed = processGmailSafely(processedIds, newEvents, warnings);
             processLumaCalendarsSafely(newEvents, warnings);
-            processInstagramSafely(processedIds, instagramBootstrapped, upcoming, newEvents, warnings);
+            instagramFetched = processInstagramSafely(
+                    processedIds, instagramBootstrapped, upcoming, newEvents, warnings,
+                    instagramLastFetchedAt);
 
             EventStore.RotateResult rotated = eventStore.rotateAndClassify(upcoming, past, newEvents);
             List<Event> nextUpcoming = rotated.upcoming();
@@ -114,6 +118,9 @@ public final class ConnectorRun {
             stateStore.saveConsecutiveFailures(0);
             if (warningsDelivered) {
                 stateStore.saveLastWarningCodes(diff.currentCodes());
+            }
+            if (instagramFetched) {
+                stateStore.saveInstagramLastFetchedAt(now);
             }
             return 0;
 
@@ -198,15 +205,23 @@ public final class ConnectorRun {
         }
     }
 
-    private void processInstagramSafely(
+    private boolean processInstagramSafely(
             Set<String> processedIds,
             Set<String> bootstrappedAccounts,
             List<Event> upcomingEvents,
             List<Event> newEvents,
-            List<RunWarning> warnings
+            List<RunWarning> warnings,
+            String instagramLastFetchedAt
     ) {
         if (!config.instagramEnabled()) {
-            return;
+            return false;
+        }
+
+        Instant now = Instant.now();
+        int intervalHours = config.instagramFetchIntervalHours();
+        if (!InstagramFetchThrottle.shouldFetch(instagramLastFetchedAt, now, intervalHours)) {
+            log.info(InstagramFetchThrottle.skipMessage(instagramLastFetchedAt, now, intervalHours));
+            return false;
         }
 
         ScrapeCreatorsClient client = new ScrapeCreatorsClient(config.scrapeCreatorsApiKey());
@@ -250,7 +265,7 @@ public final class ConnectorRun {
         }
 
         if (postsToClassify.isEmpty()) {
-            return;
+            return true;
         }
 
         // Hand the classifier this run's freshly-scraped Gmail/Luma events in
@@ -296,6 +311,7 @@ public final class ConnectorRun {
             String code = e instanceof JacksonException ? "classifier_malformed_json" : "classifier_io";
             warnings.add(new RunWarning("instagram_classifier", code, safeMessage(e)));
         }
+        return true;
     }
 
     private int processGmail(Set<String> processedIds, List<Event> newEvents) throws Exception {

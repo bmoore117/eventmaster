@@ -18,6 +18,9 @@ GMAIL_APP_PASSWORD=
 # Requires SCRAPECREATORS_API_KEY from https://scrapecreators.com
 # INSTAGRAM_ACCOUNTS=someaccount,anotheraccount
 # SCRAPECREATORS_API_KEY=
+# Minimum hours between ScrapeCreators fetch cycles (all handles). Default: 6.
+# Set to 0 to fetch on every connector run (no throttling).
+# INSTAGRAM_FETCH_INTERVAL_HOURS=6
 
 # Optional — Hermes webhook (defaults suit local loopback gateway)
 # HERMES_WEBHOOK_ENABLED=true

@@ -64,24 +64,41 @@ public final class StateStore {
         return loadConnectorState().lastWarningCodes();
     }
 
+    public String loadInstagramLastFetchedAt() {
+        return loadConnectorState().instagramLastFetchedAt();
+    }
+
     public void saveConsecutiveFailures(int n) throws IOException {
         ConnectorState current = loadConnectorState();
-        saveConnectorState(new ConnectorState(n, current.instagramBootstrapped(), current.lastWarningCodes()));
+        saveConnectorState(new ConnectorState(
+                n, current.instagramBootstrapped(), current.lastWarningCodes(),
+                current.instagramLastFetchedAt()));
     }
 
     public void saveInstagramBootstrapped(Set<String> accounts) throws IOException {
         ConnectorState current = loadConnectorState();
-        saveConnectorState(new ConnectorState(current.consecutiveFailures(), accounts, current.lastWarningCodes()));
+        saveConnectorState(new ConnectorState(
+                current.consecutiveFailures(), accounts, current.lastWarningCodes(),
+                current.instagramLastFetchedAt()));
     }
 
     public void saveLastWarningCodes(Set<String> codes) throws IOException {
         ConnectorState current = loadConnectorState();
-        saveConnectorState(new ConnectorState(current.consecutiveFailures(), current.instagramBootstrapped(), codes));
+        saveConnectorState(new ConnectorState(
+                current.consecutiveFailures(), current.instagramBootstrapped(), codes,
+                current.instagramLastFetchedAt()));
+    }
+
+    public void saveInstagramLastFetchedAt(String fetchedAt) throws IOException {
+        ConnectorState current = loadConnectorState();
+        saveConnectorState(new ConnectorState(
+                current.consecutiveFailures(), current.instagramBootstrapped(),
+                current.lastWarningCodes(), fetchedAt));
     }
 
     private ConnectorState loadConnectorState() {
         if (!Files.exists(connectorStatePath)) {
-            return new ConnectorState(0, Set.of(), Set.of());
+            return new ConnectorState(0, Set.of(), Set.of(), null);
         }
         try {
             JsonNode root = Json.MAPPER.readTree(Files.readAllBytes(connectorStatePath));
@@ -105,15 +122,20 @@ public final class StateStore {
                     }
                 }
             }
+            String lastFetchedAt = root.path("instagram_last_fetched_at").asString(null);
+            if (lastFetchedAt != null && lastFetchedAt.isBlank()) {
+                lastFetchedAt = null;
+            }
             return new ConnectorState(
                     root.path("consecutive_failures").asInt(0),
                     bootstrapped,
-                    warningCodes);
+                    warningCodes,
+                    lastFetchedAt);
         } catch (IOException | JacksonException e) {
             // JacksonException is unchecked in Jackson 3.x — catch explicitly
             // so a malformed connector-state.json doesn't crash the run.
             log.warn("Could not parse {} — assuming fresh connector state", connectorStatePath.getFileName());
-            return new ConnectorState(0, Set.of(), Set.of());
+            return new ConnectorState(0, Set.of(), Set.of(), null);
         }
     }
 
@@ -126,6 +148,9 @@ public final class StateStore {
         }
         if (!state.lastWarningCodes().isEmpty()) {
             body.put("last_warning_codes", new ArrayList<>(new TreeSet<>(state.lastWarningCodes())));
+        }
+        if (state.instagramLastFetchedAt() != null && !state.instagramLastFetchedAt().isBlank()) {
+            body.put("instagram_last_fetched_at", state.instagramLastFetchedAt());
         }
         Files.write(connectorStatePath, Json.PRETTY.writeValueAsBytes(body));
     }
@@ -159,6 +184,7 @@ public final class StateStore {
     private record ConnectorState(
             int consecutiveFailures,
             Set<String> instagramBootstrapped,
-            Set<String> lastWarningCodes
+            Set<String> lastWarningCodes,
+            String instagramLastFetchedAt
     ) {}
 }

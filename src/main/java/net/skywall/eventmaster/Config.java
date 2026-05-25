@@ -27,6 +27,7 @@ public final class Config {
     public static final String DEFAULT_HERMES_API_MODEL = "hermes-agent";
     public static final String DEFAULT_HERMES_WEBHOOK_SECRET = "INSECURE_NO_AUTH";
     public static final String DEFAULT_GMAIL_LABEL = "miami-social-event-source";
+    public static final int DEFAULT_INSTAGRAM_FETCH_INTERVAL_HOURS = 6;
 
     private static final Set<String> FALSY = Set.of("0", "false", "no");
     private static final Logger log = LoggerFactory.getLogger(Config.class);
@@ -108,6 +109,24 @@ public final class Config {
             return null;
         }
         return requireNonBlank("SCRAPECREATORS_API_KEY");
+    }
+
+    /**
+     * Minimum hours between ScrapeCreators fetch cycles across all configured
+     * handles. {@code 0} disables throttling (fetch on every connector run).
+     */
+    public int instagramFetchIntervalHours() {
+        String raw = get("INSTAGRAM_FETCH_INTERVAL_HOURS");
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_INSTAGRAM_FETCH_INTERVAL_HOURS;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(raw.strip()));
+        } catch (NumberFormatException e) {
+            log.warn("Invalid INSTAGRAM_FETCH_INTERVAL_HOURS '{}' — using default {}",
+                    raw, DEFAULT_INSTAGRAM_FETCH_INTERVAL_HOURS);
+            return DEFAULT_INSTAGRAM_FETCH_INTERVAL_HOURS;
+        }
     }
 
     public HermesApiConfig hermesApi() {

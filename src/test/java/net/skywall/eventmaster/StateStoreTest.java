@@ -84,4 +84,28 @@ class StateStoreTest {
         assertEquals(Set.of("a|b", "c|d"), store.loadLastWarningCodes(),
                 "Blank string entries in the persisted array must be ignored");
     }
+
+    @Test
+    void saveAndLoadInstagramLastFetchedAt_roundtrips(@TempDir Path dir) throws IOException {
+        StateStore store = newStore(dir);
+        String fetchedAt = "2026-05-25T04:30:02.112Z";
+
+        store.saveInstagramLastFetchedAt(fetchedAt);
+
+        assertEquals(fetchedAt, store.loadInstagramLastFetchedAt());
+    }
+
+    @Test
+    void saveInstagramLastFetchedAt_preservesOtherFields(@TempDir Path dir) throws IOException {
+        StateStore store = newStore(dir);
+        store.saveConsecutiveFailures(2);
+        store.saveInstagramBootstrapped(Set.of("alpha"));
+        store.saveLastWarningCodes(Set.of("gmail|gmail_auth_failed"));
+
+        store.saveInstagramLastFetchedAt("2026-05-25T04:30:02.112Z");
+
+        assertEquals(2, store.loadConsecutiveFailures());
+        assertEquals(Set.of("alpha"), store.loadInstagramBootstrapped());
+        assertEquals(Set.of("gmail|gmail_auth_failed"), store.loadLastWarningCodes());
+    }
 }

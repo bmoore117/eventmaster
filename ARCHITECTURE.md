@@ -37,6 +37,15 @@ accident during refactors:
   preventing a huge backfill into Hermes. Removing the entry from
   `instagram_bootstrapped` (in `connector-state.json`) re-arms the bootstrap.
   See `ConnectorRun.processInstagram`.
+- **Instagram fetch throttling is global, not per-handle.** ScrapeCreators has
+  no `since_id` parameter — every call returns the latest page — so the only
+  credit-saving lever is fetching less often. `INSTAGRAM_FETCH_INTERVAL_HOURS`
+  (default 6) gates the entire Instagram phase: when the connector runs more
+  frequently (e.g. hourly cron), intermediate runs skip ScrapeCreators
+  entirely. The timestamp lives in `connector-state.json` as
+  `instagram_last_fetched_at` and advances when a fetch cycle completes
+  (whether or not individual handles returned errors). Set the interval to
+  `0` to disable throttling and fetch on every run.
 - **Classifier failures are atomic.** If the Hermes API call throws, the
   queued post IDs are *not* added to `processedIds`, so the same posts retry
   next run. Conversely, on success every post in the batch is marked seen
