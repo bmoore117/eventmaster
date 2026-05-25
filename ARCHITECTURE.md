@@ -62,6 +62,36 @@ accident during refactors:
   commits). On any other failure path, Hermes *is* notified with
   `hasErrors=true` and the prior-failure counter incremented — the only
   signal of consecutive-failure escalation to the agent.
-- **`lumaUrl` is the canonical dedup key.** Anything with a Luma URL collapses
-  to a normalised lowercase URL; `title|date` is the fallback for ICS /
-  body-text / Instagram-classified events.
+- **Dedup uses hint-set intersection, not a single key.** `EventStore.eventKeys`
+  emits up to three identity hints per event — `luma:<normalised-url>` (only
+  for real Luma hosts), `td:<normalised-title>|<date>`, and
+  `dl:<date>|<normalised-location>`. Two events are duplicates if any pair of
+  hints overlap. This catches cross-source matches (same event scraped from
+  email + Luma calendar, or same gathering posted on Instagram and announced
+  via ICS) that a single-key approach would miss.
+- **Instagram permalinks are not identity hints.** Unmatched Instagram-derived
+  events still get their permalink in the `lumaUrl` slot so the agent has a
+  clickable link, but `EventStore.eventKeys` only emits a `luma:` hint when
+  the host is actually `lu.ma` or `luma.com`. IG permalinks fall through to
+  `td:` / `dl:` hints derived from the LLM-extracted title/date/location.
+- **The classifier matches by per-call id, not by Luma URL.**
+  `InstagramPostClassifier.classifyPosts` assigns each upcoming event a
+  sequential `u0`/`u1`/… id and asks the LLM to echo it back as
+  `matchedUpcomingEventId`. This lets the LLM signal a match against
+  ICS-sourced or body-text-sourced existing events that have no Luma URL to
+  point at. Matched posts are dropped entirely (no separate Event emitted);
+  unknown ids are treated as unmatched with a warning, guarding against
+  hallucinated ids.
+- **Classifier context spans the whole run, not just on-disk state.**
+  `ConnectorRun.processInstagram` hands the LLM the on-disk `upcoming` list
+  *plus* the non-past events scraped from Gmail and Luma earlier in the same
+  run. Without this, an Instagram post about an event we just discovered via
+  email or a Luma calendar would not match any `upcomingEvents` entry, fall
+  back to `post.permalink()` as its URL, and slip past the lumaUrl-based
+  dedup in `rotateAndClassify` — producing a near-duplicate notification.
+- **Classifier context is pre-deduped by hint-set.** Before sending,
+  `ConnectorRun.processInstagram` runs `EventStore.dedupByHints` over the
+  merged context so the LLM doesn't see two copies of the same event (the
+  on-disk record and a fresh Luma re-scrape of it, which is the dominant
+  case). Same dedup function as `rotateAndClassify`, just applied earlier —
+  pure token / clarity savings, no semantic change.

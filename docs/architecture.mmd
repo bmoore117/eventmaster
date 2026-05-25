@@ -56,7 +56,9 @@ flowchart TD
       BootMark["mark every unseen post<br/>as seen in processedIds,<br/>add handle to bootstrapped<br/>(no classification)"]
       Queue["queue unseen posts<br/>into postsToClassify"]
       Any{"postsToClassify<br/>non-empty?"}
-      Cls["InstagramPostClassifier<br/>POST Hermes<br/>/v1/chat/completions"]
+      Ctx["build classifier context:<br/>on-disk upcoming +<br/>non-past newEvents,<br/>then EventStore.dedupByHints<br/>(drop hint-set duplicates so<br/>the LLM doesn't see re-scrapes)"]
+      Cls["InstagramPostClassifier<br/>POST Hermes<br/>/v1/chat/completions<br/><br/>each upcoming event gets<br/>a per-call id (u0, u1, ...)"]
+      MatchedSkip["matched to existing<br/>upcoming event<br/>(no separate Event emitted)"]
       ClsFail["log error,<br/>leave post IDs unprocessed<br/>(retry next run)"]
       ParseCls["parse JSON,<br/>keep isEvent=true,<br/>map to Event<br/>(parseMethod = instagram_agent)"]
       AppendIg["append → newEvents,<br/>mark classified IDs seen"]
@@ -67,9 +69,10 @@ flowchart TD
       Boot -- yes --> Queue --> IGLoop
       IGLoop --> Any
       Any -- no --> IGdone
-      Any -- yes --> Cls
+      Any -- yes --> Ctx --> Cls
       Cls -- IOException --> ClsFail --> IGdone
-      Cls -- ok --> ParseCls --> AppendIg --> IGdone
+      Cls -- "matchedUpcomingEventId<br/>set & known" --> MatchedSkip --> IGdone
+      Cls -- "isEvent & unmatched" --> ParseCls --> AppendIg --> IGdone
     end
     LCLoop --> IGOn
 
@@ -77,7 +80,7 @@ flowchart TD
       direction TB
       R1["1. move past-dated<br/>upcoming → past"]
       R2["2. for each newEvent:<br/>• isPast → past (deduped)<br/>• else isInNextNDays(7)<br/>&nbsp;&nbsp;→ upcoming (deduped)"]
-      R3["dedup key:<br/>normalised lumaUrl<br/>(lowercase, no query,<br/>no trailing slash)<br/>else title|date"]
+      R3["dedup by hint-set intersection<br/>(EventStore.eventKeys):<br/>• luma:&lt;normalised-url&gt;<br/>&nbsp;&nbsp;(real Luma hosts only)<br/>• td:&lt;norm-title&gt;|&lt;date&gt;<br/>• dl:&lt;date&gt;|&lt;norm-location&gt;<br/>events collapse if any hint overlaps"]
       R1 --> R2 --> R3
     end
     IGdone --> R1

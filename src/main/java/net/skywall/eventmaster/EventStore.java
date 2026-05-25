@@ -8,11 +8,15 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -51,28 +55,108 @@ public final class EventStore {
     }
 
     /**
-     * Canonical dedup key. Prefers the normalised Luma URL (lowercased, query
-     * stripped, trailing slash removed); falls back to {@code "title|date"}.
+     * Compute the set of identity hints for an event. Two events are duplicates
+     * if any of their hints overlap. Tiers, strongest to weakest:
+     * <ul>
+     *   <li>{@code luma:<normalised-luma-url>} — only emitted for real Luma URLs
+     *       (host {@code lu.ma} or {@code luma.com}); Instagram permalinks are
+     *       deliberately not used as an identity hint.
+     *   <li>{@code td:<normalised-title>|<date>} — title (lowercased,
+     *       punctuation-stripped, whitespace-collapsed) and date both present.
+     *   <li>{@code dl:<date>|<normalised-location>} — date and location both
+     *       present. Catches "same venue, same day, different title" cases.
+     * </ul>
+     * Events with no identifying information return an empty set and are not
+     * dedup-mergeable with anything else.
      */
-    public static String eventKey(Event event) {
+    public static Set<String> eventKeys(Event event) {
+        Set<String> hints = new LinkedHashSet<>();
+
         String url = event.lumaUrl();
-        if (url != null && !url.isBlank()) {
-            String trimmed = url.split("\\?", 2)[0];
-            while (trimmed.endsWith("/")) {
-                trimmed = trimmed.substring(0, trimmed.length() - 1);
+        if (isLumaUrl(url)) {
+            hints.add("luma:" + normaliseLumaUrl(url));
+        }
+
+        String title = normaliseText(event.title());
+        String date = event.date() == null ? "" : event.date().strip();
+        String location = normaliseText(event.location());
+
+        if (!title.isEmpty() && !date.isEmpty()) {
+            hints.add("td:" + title + "|" + date);
+        }
+        if (!date.isEmpty() && !location.isEmpty()) {
+            hints.add("dl:" + date + "|" + location);
+        }
+
+        return hints;
+    }
+
+    private static boolean isLumaUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return false;
+        }
+        try {
+            String host = URI.create(url).getHost();
+            if (host == null) {
+                return false;
             }
-            if (!trimmed.isEmpty()) {
-                return trimmed.toLowerCase();
+            host = host.toLowerCase(Locale.ROOT);
+            return host.equals("lu.ma") || host.equals("www.lu.ma")
+                    || host.equals("luma.com") || host.equals("www.luma.com");
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private static String normaliseLumaUrl(String url) {
+        String trimmed = url.split("\\?", 2)[0];
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private static String normaliseText(String s) {
+        if (s == null || s.isBlank()) {
+            return "";
+        }
+        return s.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9 ]+", " ")
+                .replaceAll("\\s+", " ")
+                .strip();
+    }
+
+    /**
+     * Order-preserving dedup using the same hint-set intersection that
+     * {@link #rotateAndClassify} applies downstream. The first occurrence of
+     * any hint cluster wins; subsequent events whose hints overlap are dropped.
+     *
+     * <p>Events with no hints (no Luma URL and no usable title|date or
+     * date|location) are always kept — they cannot prove duplication against
+     * anything else, so dropping them would be lossy.
+     *
+     * <p>Intended for cleaning up the comparison context handed to the
+     * Instagram classifier: the on-disk upcoming list and this run's freshly
+     * scraped Luma calendar almost always overlap, and we'd rather not pay
+     * for those duplicate entries in the LLM prompt.
+     */
+    public static List<Event> dedupByHints(List<Event> events) {
+        Set<String> seen = new HashSet<>();
+        List<Event> result = new ArrayList<>(events.size());
+        for (Event e : events) {
+            Set<String> keys = eventKeys(e);
+            if (keys.isEmpty() || Collections.disjoint(seen, keys)) {
+                seen.addAll(keys);
+                result.add(e);
             }
         }
-        String title = event.title() == null ? "" : event.title().strip().toLowerCase();
-        String date = event.date() == null ? "" : event.date().strip();
-        return title + "|" + date;
+        return result;
     }
 
     /**
      * 1) Move any existing upcoming events whose date has now passed into past.
-     * 2) Classify each new event into upcoming or past, skipping duplicates.
+     * 2) Classify each new event into upcoming or past, skipping duplicates by
+     *    intersecting hint sets ({@link #eventKeys}).
      */
     public RotateResult rotateAndClassify(
             List<Event> upcoming,
@@ -87,22 +171,30 @@ public final class EventStore {
         );
 
         Set<String> seenUpcoming = new HashSet<>();
-        for (Event e : stillUpcoming) seenUpcoming.add(eventKey(e));
+        for (Event e : stillUpcoming) seenUpcoming.addAll(eventKeys(e));
 
         Set<String> seenPast = new HashSet<>();
-        for (Event e : past) seenPast.add(eventKey(e));
-        for (Event e : rotatedToPast) seenPast.add(eventKey(e));
+        for (Event e : past) seenPast.addAll(eventKeys(e));
+        for (Event e : rotatedToPast) seenPast.addAll(eventKeys(e));
 
         List<Event> newlyAddedUpcoming = new ArrayList<>();
         List<Event> newlyAddedPast = new ArrayList<>();
 
         for (Event e : newEvents) {
-            String key = eventKey(e);
+            Set<String> keys = eventKeys(e);
+            if (keys.isEmpty()) {
+                // No hints means we can neither prove duplication nor
+                // distinguish it from junk; skip rather than collapse all such
+                // events to one synthetic bucket.
+                continue;
+            }
             if (DateFilters.isPast(e)) {
-                if (seenPast.add(key)) {
+                if (Collections.disjoint(seenPast, keys)) {
+                    seenPast.addAll(keys);
                     newlyAddedPast.add(e);
                 }
-            } else if (DateFilters.isInNextNDays(e) && seenUpcoming.add(key)) {
+            } else if (DateFilters.isInNextNDays(e) && Collections.disjoint(seenUpcoming, keys)) {
+                seenUpcoming.addAll(keys);
                 newlyAddedUpcoming.add(e);
             }
         }

@@ -4,6 +4,7 @@ import net.skywall.eventmaster.model.EmailMessage;
 import net.skywall.eventmaster.model.Event;
 import net.skywall.eventmaster.model.Health;
 import net.skywall.eventmaster.model.InstagramPost;
+import net.skywall.eventmaster.utils.DateFilters;
 import net.skywall.eventmaster.utils.EmailParser;
 import net.skywall.eventmaster.utils.GmailSource;
 import org.slf4j.Logger;
@@ -207,9 +208,32 @@ public final class ConnectorRun {
             return;
         }
 
+        // Hand the classifier this run's freshly-scraped Gmail/Luma events in
+        // addition to the on-disk upcoming list, so an Instagram post about an
+        // event we just discovered in the same run can still resolve to the
+        // matching lumaUrl (and dedup with it in EventStore.rotateAndClassify)
+        // instead of falling back to the post's permalink.
+        List<Event> contextEvents = new ArrayList<>(upcomingEvents);
+        for (Event e : newEvents) {
+            if (!DateFilters.isPast(e)) {
+                contextEvents.add(e);
+            }
+        }
+
+        // Collapse hint-set duplicates before the LLM call. The on-disk
+        // upcoming list and a re-scrape of the same Luma calendar virtually
+        // always overlap, and we'd rather not pay for those copies in tokens
+        // (or risk the LLM picking a redundant entry to match against).
+        int rawContextSize = contextEvents.size();
+        contextEvents = EventStore.dedupByHints(contextEvents);
+        if (contextEvents.size() < rawContextSize) {
+            log.info("Deduped classifier context: {} -> {} event(s)",
+                    rawContextSize, contextEvents.size());
+        }
+
         log.info("Classifying {} Instagram post(s) via Hermes API", postsToClassify.size());
         try {
-            List<Event> extracted = instagramClassifier.classifyPosts(postsToClassify, upcomingEvents);
+            List<Event> extracted = instagramClassifier.classifyPosts(postsToClassify, contextEvents);
             if (!extracted.isEmpty()) {
                 newEvents.addAll(extracted);
                 log.info("  -> added {} event(s) from Instagram (instagram_agent)", extracted.size());

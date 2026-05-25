@@ -42,10 +42,23 @@ public final class InstagramPostClassifier {
             return List.of();
         }
 
+        // Assign a stable per-call id to each upcoming event so the LLM can
+        // point at any of them (including ICS- or body-text-sourced events
+        // that have no lumaUrl) when reporting a match.
+        Map<String, Event> upcomingById = indexUpcoming(upcomingEvents);
+
         String systemPrompt = loadPrompt();
-        String userPrompt = buildUserPrompt(posts, upcomingEvents, LocalDate.now());
+        String userPrompt = buildUserPrompt(posts, upcomingById, LocalDate.now());
         String response = completions.complete(systemPrompt, userPrompt);
-        return parseEvents(response, posts);
+        return parseEvents(response, posts, upcomingById);
+    }
+
+    static Map<String, Event> indexUpcoming(List<Event> upcomingEvents) {
+        Map<String, Event> indexed = new LinkedHashMap<>();
+        for (int i = 0; i < upcomingEvents.size(); i++) {
+            indexed.put("u" + i, upcomingEvents.get(i));
+        }
+        return indexed;
     }
 
     private String loadPrompt() throws IOException {
@@ -56,11 +69,13 @@ public final class InstagramPostClassifier {
         return Files.readString(config.instagramClassifierPromptPath, StandardCharsets.UTF_8).strip();
     }
 
-    static String buildUserPrompt(List<InstagramPost> posts, List<Event> upcomingEvents, LocalDate currentDate) {
+    static String buildUserPrompt(List<InstagramPost> posts, Map<String, Event> upcomingById, LocalDate currentDate) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("currentDate", currentDate.toString());
         payload.put("posts", posts.stream().map(InstagramPostClassifier::postInput).toList());
-        payload.put("upcomingEvents", upcomingEvents.stream().map(InstagramPostClassifier::eventInput).toList());
+        payload.put("upcomingEvents", upcomingById.entrySet().stream()
+                .map(e -> eventInput(e.getKey(), e.getValue()))
+                .toList());
         try {
             return Json.PRETTY.writeValueAsString(payload);
         } catch (Exception e) {
@@ -91,8 +106,9 @@ public final class InstagramPostClassifier {
         }
     }
 
-    private static Map<String, Object> eventInput(Event event) {
+    private static Map<String, Object> eventInput(String id, Event event) {
         Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", id);
         item.put("title", event.title());
         item.put("date", event.date());
         item.put("time", event.time());
@@ -102,7 +118,8 @@ public final class InstagramPostClassifier {
         return item;
     }
 
-    static List<Event> parseEvents(String response, List<InstagramPost> posts) throws IOException {
+    static List<Event> parseEvents(String response, List<InstagramPost> posts, Map<String, Event> upcomingById)
+            throws IOException {
         JsonNode root = Json.MAPPER.readTree(extractJson(response));
         JsonNode results = root.path("posts");
         if (!results.isArray()) {
@@ -117,6 +134,7 @@ public final class InstagramPostClassifier {
         List<Event> events = new ArrayList<>();
         int eventCount = 0;
         int nonEventCount = 0;
+        int matchedCount = 0;
 
         for (JsonNode item : results) {
             String id = textOrNull(item.path("id"));
@@ -135,18 +153,29 @@ public final class InstagramPostClassifier {
                 continue;
             }
 
+            String matchedId = textOrNull(item.path("matchedUpcomingEventId"));
+            if (matchedId != null) {
+                if (upcomingById.containsKey(matchedId)) {
+                    // Post is announcing an event we already track — don't
+                    // emit a separate Event; the post id will still be marked
+                    // seen by the caller so we won't re-classify it.
+                    matchedCount++;
+                    continue;
+                }
+                log.warn("Classifier returned unknown upcoming event id {} — treating post {} as unmatched",
+                        matchedId, id);
+            }
+
             eventCount++;
             events.add(toEvent(item, post));
         }
 
-        log.info("Instagram classification: {} event post(s), {} non-event post(s)",
-                eventCount, nonEventCount);
+        log.info("Instagram classification: {} event post(s), {} matched to existing, {} non-event post(s)",
+                eventCount, matchedCount, nonEventCount);
         return events;
     }
 
     private static Event toEvent(JsonNode item, InstagramPost post) {
-        String matchedUrl = textOrNull(item.path("matchedUpcomingEventUrl"));
-        String url = (matchedUrl != null) ? matchedUrl : post.permalink();
         String title = textOrNull(item.path("title"));
         if (title == null || title.isBlank()) {
             title = "Instagram post from @" + post.handle();
@@ -157,6 +186,9 @@ public final class InstagramPostClassifier {
             description = post.caption();
         }
 
+        // Unmatched posts get their permalink in the lumaUrl slot so the
+        // agent has a clickable link. EventStore.eventKeys treats it as a
+        // non-Luma URL and falls back to title/date/location hints for dedup.
         return new Event(
                 title,
                 textOrNull(item.path("date")),
@@ -165,7 +197,7 @@ public final class InstagramPostClassifier {
                 textOrNull(item.path("endTime")),
                 textOrNull(item.path("location")),
                 description,
-                url,
+                post.permalink(),
                 "instagram_agent",
                 "instagram:" + post.handle(),
                 null,
