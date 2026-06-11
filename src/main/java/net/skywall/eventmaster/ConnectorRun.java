@@ -69,11 +69,12 @@ public final class ConnectorRun {
             EventStore.RotateResult rotated = eventStore.rotateAndClassify(upcoming, past, newEvents);
             List<Event> nextUpcoming = rotated.upcoming();
             List<Event> nextPast = rotated.past();
-            List<Event> newlyAdded = rotated.newlyAdded();
+            List<Event> newlyStored = rotated.newlyStored();
+            List<Event> toNotify = rotated.toNotify();
 
             log.info("Run complete: {} email(s) processed, {} event(s) parsed, "
-                            + "{} newly upcoming, {} upcoming total, {} past total, {} warning(s)",
-                    emailsProcessed, newEvents.size(), newlyAdded.size(),
+                            + "{} newly stored, {} to notify, {} upcoming total, {} past total, {} warning(s)",
+                    emailsProcessed, newEvents.size(), newlyStored.size(), toNotify.size(),
                     nextUpcoming.size(), nextPast.size(), warnings.size());
 
             String now = Instant.now().toString();
@@ -85,11 +86,11 @@ public final class ConnectorRun {
             //    catch block treats it as a run failure: processedIds,
             //    instagramBootstrapped, and the new events stay unsaved and
             //    the next run will re-scrape and retry the same notification.
-            if (newlyAdded.isEmpty()) {
-                log.info("No new events — events webhook not sent");
-            } else if (!hermes.notifyEvents(now, newlyAdded, health)) {
+            if (toNotify.isEmpty()) {
+                log.info("No events to notify — events webhook not sent");
+            } else if (!hermes.notifyEvents(now, toNotify, health)) {
                 throw new WebhookDeliveryException(
-                        "Hermes events webhook delivery failed for " + newlyAdded.size() + " new event(s)");
+                        "Hermes events webhook delivery failed for " + toNotify.size() + " event(s)");
             }
 
             // 2) Warnings webhook — BEST-EFFORT. Only fires when the warning
@@ -118,7 +119,7 @@ public final class ConnectorRun {
             //    place); everything else commits unconditionally.
             stateStore.saveProcessedIds(processedIds);
             stateStore.saveInstagramBootstrapped(instagramBootstrapped);
-            eventStore.writeUpcoming(nextUpcoming);
+            eventStore.writeUpcoming(EventStore.markNotified(nextUpcoming, toNotify, now));
             eventStore.writePast(nextPast);
             stateStore.saveConsecutiveFailures(0);
             if (warningsDelivered) {

@@ -157,6 +157,10 @@ public final class EventStore {
      * 1) Move any existing upcoming events whose date has now passed into past.
      * 2) Classify each new event into upcoming or past, skipping duplicates by
      *    intersecting hint sets ({@link #eventKeys}).
+     * 3) Decide which events to notify: any upcoming event within the
+     *    {@link DateFilters#DEFAULT_WINDOW_DAYS}-day window that has not yet
+     *    been notified ({@link Event#notifiedAt()}), including events stored
+     *    on a prior run while still outside the window.
      */
     public RotateResult rotateAndClassify(
             List<Event> upcoming,
@@ -164,21 +168,26 @@ public final class EventStore {
             List<Event> newEvents
     ) {
         List<Event> rotatedToPast = upcoming.stream().filter(DateFilters::isPast).toList();
-        List<Event> stillUpcoming = new ArrayList<>(
-                DateFilters.filterProspective(
-                        upcoming.stream().filter(e -> !DateFilters.isPast(e)).toList()
-                )
-        );
+        List<Event> stillUpcoming = upcoming.stream()
+                .filter(e -> !DateFilters.isPast(e))
+                .toList();
 
-        Set<String> seenUpcoming = new HashSet<>();
-        for (Event e : stillUpcoming) seenUpcoming.addAll(eventKeys(e));
+        Set<String> upcomingKeys = new HashSet<>();
+        for (Event e : stillUpcoming) upcomingKeys.addAll(eventKeys(e));
 
-        Set<String> seenPast = new HashSet<>();
-        for (Event e : past) seenPast.addAll(eventKeys(e));
-        for (Event e : rotatedToPast) seenPast.addAll(eventKeys(e));
+        Set<String> pastKeys = new HashSet<>();
+        for (Event e : past) pastKeys.addAll(eventKeys(e));
+        for (Event e : rotatedToPast) pastKeys.addAll(eventKeys(e));
 
-        List<Event> newlyAddedUpcoming = new ArrayList<>();
+        List<Event> newlyStoredUpcoming = new ArrayList<>();
         List<Event> newlyAddedPast = new ArrayList<>();
+        List<Event> toNotify = new ArrayList<>();
+
+        for (Event e : stillUpcoming) {
+            if (shouldNotify(e)) {
+                toNotify.add(e);
+            }
+        }
 
         for (Event e : newEvents) {
             Set<String> keys = eventKeys(e);
@@ -189,24 +198,51 @@ public final class EventStore {
                 continue;
             }
             if (DateFilters.isPast(e)) {
-                if (Collections.disjoint(seenPast, keys)) {
-                    seenPast.addAll(keys);
+                if (Collections.disjoint(pastKeys, keys)) {
+                    pastKeys.addAll(keys);
                     newlyAddedPast.add(e);
                 }
-            } else if (DateFilters.isInNextNDays(e) && Collections.disjoint(seenUpcoming, keys)) {
-                seenUpcoming.addAll(keys);
-                newlyAddedUpcoming.add(e);
+            } else if (Collections.disjoint(upcomingKeys, keys)) {
+                upcomingKeys.addAll(keys);
+                newlyStoredUpcoming.add(e);
+                if (shouldNotify(e)) {
+                    toNotify.add(e);
+                }
             }
         }
 
         List<Event> finalUpcoming = new ArrayList<>(stillUpcoming);
-        finalUpcoming.addAll(newlyAddedUpcoming);
+        finalUpcoming.addAll(newlyStoredUpcoming);
 
         List<Event> finalPast = new ArrayList<>(past);
         finalPast.addAll(rotatedToPast);
         finalPast.addAll(newlyAddedPast);
 
-        return new RotateResult(finalUpcoming, finalPast, newlyAddedUpcoming);
+        return new RotateResult(finalUpcoming, finalPast, newlyStoredUpcoming, toNotify);
+    }
+
+    /** Stamp {@code notifiedAt} onto events in {@code upcoming} that match {@code notified}. */
+    public static List<Event> markNotified(List<Event> upcoming, List<Event> notified, String notifiedAt) {
+        if (notified.isEmpty()) {
+            return upcoming;
+        }
+        Set<String> notifyKeys = new HashSet<>();
+        for (Event e : notified) {
+            notifyKeys.addAll(eventKeys(e));
+        }
+        List<Event> result = new ArrayList<>(upcoming.size());
+        for (Event e : upcoming) {
+            if (!e.isNotified() && !Collections.disjoint(notifyKeys, eventKeys(e))) {
+                result.add(e.withNotifiedAt(notifiedAt));
+            } else {
+                result.add(e);
+            }
+        }
+        return result;
+    }
+
+    private static boolean shouldNotify(Event e) {
+        return !e.isNotified() && DateFilters.isInNextNDays(e);
     }
 
     private static List<Event> loadList(Path path) {
@@ -228,5 +264,10 @@ public final class EventStore {
         Files.write(path, Json.PRETTY.writeValueAsBytes(events));
     }
 
-    public record RotateResult(List<Event> upcoming, List<Event> past, List<Event> newlyAdded) {}
+    public record RotateResult(
+            List<Event> upcoming,
+            List<Event> past,
+            List<Event> newlyStored,
+            List<Event> toNotify
+    ) {}
 }

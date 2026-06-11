@@ -202,7 +202,8 @@ public final class InstagramPostClassifier {
                 "instagram:" + post.handle(),
                 null,
                 post.id(),
-                post.fetchedAt()
+                post.fetchedAt(),
+                null
         );
     }
 

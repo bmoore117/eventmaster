@@ -118,7 +118,7 @@ public final class LumaParsers {
                 emptyToNull(data.path("description").asString(null)),
                 sourceUrl,
                 "luma_jsonld",
-                null, null, null, null
+                null, null, null, null, null
         ));
     }
 
@@ -171,7 +171,7 @@ public final class LumaParsers {
                 emptyToNull(event.path("description").asString(null)),
                 sourceUrl,
                 "luma_nextdata",
-                null, null, null, null
+                null, null, null, null, null
         ));
     }
 
@@ -220,7 +220,7 @@ public final class LumaParsers {
                     emptyToNull(ev.path("description").asString(null)),
                     eventUrl,
                     "luma_calendar_nextdata",
-                    null, null, null, null
+                    null, null, null, null, null
             ));
         }
         return events;
@@ -247,7 +247,7 @@ public final class LumaParsers {
         return List.of(new Event(
                 title, date, time, null, null,
                 address, null, sourceUrl, "luma_html_scrape",
-                null, null, null, null
+                null, null, null, null, null
         ));
     }
 

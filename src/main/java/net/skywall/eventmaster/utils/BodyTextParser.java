@@ -42,7 +42,7 @@ public final class BodyTextParser {
         return List.of(new Event(
                 null, date, time, null, null,
                 null, description, null, "body_text",
-                null, null, null, null
+                null, null, null, null, null
         ));
     }
 

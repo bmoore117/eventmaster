@@ -89,14 +89,14 @@ flowchart TD
     subgraph ROT["EventStore.rotateAndClassify (in memory)"]
       direction TB
       R1["1. move past-dated<br/>upcoming → past"]
-      R2["2. for each newEvent:<br/>• isPast → past (deduped)<br/>• else isInNextNDays(7)<br/>&nbsp;&nbsp;→ upcoming (deduped)"]
+      R2["2. for each newEvent:<br/>• isPast → past (deduped)<br/>• else → upcoming (deduped)<br/>3. toNotify = upcoming events<br/>within 7 days with no notifiedAt"]
       R3["dedup by hint-set intersection<br/>(EventStore.eventKeys):<br/>• luma:&lt;normalised-url&gt;<br/>&nbsp;&nbsp;(real Luma hosts only)<br/>• td:&lt;norm-title&gt;|&lt;date&gt;<br/>• dl:&lt;date&gt;|&lt;norm-location&gt;<br/>events collapse if any hint overlaps"]
       R1 --> R2 --> R3
     end
     IGdone --> R1
 
     R3 --> Health["build Health snapshot<br/>(consecutive_failures = 0)"]
-    Health --> Newly{"newlyAdded<br/>non-empty?"}
+    Health --> Newly{"toNotify<br/>non-empty?"}
     Newly -- no --> Diff
     Newly -- yes --> NotifyEv["hermes.notifyEvents<br/>POST signed events webhook<br/>(HMAC-SHA256 unless noAuth)<br/><br/>ATOMIC: failure throws"]
     NotifyEv -- "2xx" --> Diff
@@ -114,7 +114,7 @@ flowchart TD
       direction TB
       CW1["saveProcessedIds"]
       CW2["saveInstagramBootstrapped"]
-      CW3["writeUpcoming"]
+      CW3["writeUpcoming<br/>(markNotified sets notifiedAt)"]
       CW4["writePast"]
       CW5["saveConsecutiveFailures(0)"]
       CW6["saveLastWarningCodes<br/>(only if warnings<br/>delivery OK / not needed)"]

@@ -24,7 +24,9 @@ public record Event(
         String source,
         String sourceEmail,
         String sourceMessageId,
-        String fetchedAt
+        String fetchedAt,
+        /** ISO-8601 instant when this event was last included in a successful events webhook. */
+        String notifiedAt
 ) {
     /**
      * Stamp provenance onto a parser-emitted event. Empty/blank titles fall
@@ -45,7 +47,18 @@ public record Event(
                 newSource != null ? newSource : source,
                 sourceEmail,
                 sourceMessageId,
-                fetchedAt
+                fetchedAt,
+                notifiedAt
         );
+    }
+
+    public Event withNotifiedAt(String notifiedAt) {
+        return new Event(
+                title, date, time, endDate, endTime, location, description, lumaUrl,
+                parseMethod, source, sourceEmail, sourceMessageId, fetchedAt, notifiedAt);
+    }
+
+    public boolean isNotified() {
+        return notifiedAt != null && !notifiedAt.isBlank();
     }
 }

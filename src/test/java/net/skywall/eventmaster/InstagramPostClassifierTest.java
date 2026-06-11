@@ -37,10 +37,10 @@ class InstagramPostClassifierTest {
     void buildUserPrompt_assignsSequentialIdsToUpcomingEvents() throws Exception {
         Event first = new Event("Beach Bash", "2026-05-30", "18:00",
                 null, null, "South Pointe Park", null,
-                "https://lu.ma/beach-bash", "luma_jsonld", null, null, null, null);
+                "https://lu.ma/beach-bash", "luma_jsonld", null, null, null, null, null);
         Event second = new Event("Open House", "2026-06-01", "10:00",
                 null, null, "Adam's Studio", null,
-                null, "ics", null, null, null, null);
+                null, "ics", null, null, null, null, null);
 
         Map<String, Event> indexed = InstagramPostClassifier.indexUpcoming(List.of(first, second));
         String prompt = InstagramPostClassifier.buildUserPrompt(
@@ -129,7 +129,7 @@ class InstagramPostClassifierTest {
         );
         Event existing = new Event("Open House", "2026-05-23", "19:00",
                 null, null, "Adam's Studio", null,
-                null, "ics", null, null, null, null);
+                null, "ics", null, null, null, null, null);
         Map<String, Event> upcoming = InstagramPostClassifier.indexUpcoming(List.of(existing));
 
         String response = """

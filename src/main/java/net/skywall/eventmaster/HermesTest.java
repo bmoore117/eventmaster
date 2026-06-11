@@ -104,7 +104,8 @@ public final class HermesTest {
                 "fetch_events.py test",
                 null,
                 null,
-                Instant.now().toString()
+                Instant.now().toString(),
+                null
         ));
     }
 

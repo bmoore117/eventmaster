@@ -54,11 +54,15 @@ accident during refactors:
   next run. Conversely, on success every post in the batch is marked seen
   even if Hermes returned `isEvent=false` for it — desired behaviour to avoid
   re-classifying non-event posts.
-- **The 7-day window is asymmetric.** `DateFilters.isInNextNDays` keeps events
-  with unparseable/missing dates (returns `true`); `DateFilters.isPast`
-  *drops* them from "past" classification (returns `false`). So unknown-date
-  events bias toward staying in `upcoming` — the right tradeoff for a
-  notification system but a footgun if you change either method.
+- **Storage and notification use separate rules.** All non-past events
+  are kept in `upcoming_events.json`. The 7-day window
+  (`DateFilters.isInNextNDays`) gates the events webhook only: an event
+  is included in `toNotify` when it falls within the window and
+  `notifiedAt` is unset. Early Instagram discoveries are stored silently
+  and notified when the window opens; `EventStore.markNotified` stamps
+  `notifiedAt` after a successful webhook so cron ticks don't re-fire.
+  Unknown-date events still pass `isInNextNDays` (returns `true`) and
+  notify on first store, same as before.
 - **Events and warnings are separate webhook calls.** A successful run can
   fire up to two webhooks, in order: events (`WebhookPayload`) and warnings
   (`WarningsPayload`). The agent receives "what's new" and "what's degraded"
@@ -87,7 +91,7 @@ accident during refactors:
   warning list) and `resolved` (codes that were firing last run and now
   aren't), so the agent can announce recoveries.
 - **Events webhook only fires when there's something to say.** On a
-  successful run with zero `newlyAdded`, the events webhook is *not*
+  successful run with zero `toNotify`, the events webhook is *not*
   notified (state still commits, warnings webhook may still fire if the
   warning set changed). On any top-level exception, the events channel is
   used for the error notification (`hasErrors=true`, prior-failure counter

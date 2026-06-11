@@ -61,7 +61,7 @@ public final class IcsParser {
                         description,
                         null,
                         "ics",
-                        null, null, null, null
+                        null, null, null, null, null
                 ));
             }
         } catch (Exception e) {

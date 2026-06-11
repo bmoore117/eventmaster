@@ -21,7 +21,16 @@ class EventStoreTest {
             String title, String date, String location, String lumaUrl
     ) {
         return new Event(title, date, null, null, null, location, null,
-                lumaUrl, "test", null, null, null, null);
+                lumaUrl, "test", null, null, null, null, null);
+    }
+
+    private static Event eventNotified(String title, String date, String notifiedAt) {
+        return eventNotified(title, date, null, notifiedAt);
+    }
+
+    private static Event eventNotified(String title, String date, String location, String notifiedAt) {
+        return new Event(title, date, null, null, null, location, null,
+                null, "test", null, null, null, null, notifiedAt);
     }
 
     @Test
@@ -55,42 +64,89 @@ class EventStoreTest {
 
     @Test
     void rotateAndClassify_dedupsCrossSourceByTitleAndDate() {
-        Event ics = event("Open House", futureDate(3), "Adam's Studio", null);
+        Event ics = eventNotified("Open House", futureDate(3), "Adam's Studio", "2026-01-01T00:00:00Z");
         Event scrapedFromInstagram = event("open house!", futureDate(3), "Adam Studio", null);
 
         EventStore store = new EventStore(null, null);
         EventStore.RotateResult result = store.rotateAndClassify(
                 List.of(ics), List.of(), List.of(scrapedFromInstagram));
 
-        assertEquals(0, result.newlyAdded().size(),
+        assertEquals(0, result.newlyStored().size(),
                 "Instagram-derived event with matching title|date should dedup against the ICS event");
+        assertEquals(0, result.toNotify().size());
         assertEquals(1, result.upcoming().size());
     }
 
     @Test
     void rotateAndClassify_dedupsByDateAndLocationWhenTitlesDiffer() {
-        Event existing = event("Spring Open House", futureDate(3), "Adam's Studio", null);
+        Event existing = eventNotified("Spring Open House", futureDate(3), "Adam's Studio", "2026-01-01T00:00:00Z");
         Event other = event("Studio Spring Showcase", futureDate(3), "Adam's Studio", null);
 
         EventStore store = new EventStore(null, null);
         EventStore.RotateResult result = store.rotateAndClassify(
                 List.of(existing), List.of(), List.of(other));
 
-        assertEquals(0, result.newlyAdded().size(),
+        assertEquals(0, result.newlyStored().size(),
                 "Same date + same venue should collapse to one event even with different titles");
+        assertEquals(0, result.toNotify().size());
     }
 
     @Test
     void rotateAndClassify_keepsDistinctEventsWithoutOverlap() {
-        Event a = event("Beach Bash", futureDate(3), "South Pointe", null);
+        Event a = eventNotified("Beach Bash", futureDate(3), "South Pointe", "2026-01-01T00:00:00Z");
         Event b = event("Backyard BBQ", futureDate(4), "Eli's House", null);
 
         EventStore store = new EventStore(null, null);
         EventStore.RotateResult result = store.rotateAndClassify(
                 List.of(a), List.of(), List.of(b));
 
-        assertEquals(1, result.newlyAdded().size());
+        assertEquals(1, result.newlyStored().size());
+        assertEquals(1, result.toNotify().size());
         assertEquals(2, result.upcoming().size());
+    }
+
+    @Test
+    void rotateAndClassify_storesFarFutureEventWithoutNotifying() {
+        Event farFuture = event("Monthly Mixer", futureDate(20), "Downtown", null);
+
+        EventStore store = new EventStore(null, null);
+        EventStore.RotateResult result = store.rotateAndClassify(List.of(), List.of(), List.of(farFuture));
+
+        assertEquals(1, result.newlyStored().size());
+        assertEquals(0, result.toNotify().size(), "Outside the 7-day window — store only");
+        assertEquals(1, result.upcoming().size());
+        assertFalse(result.upcoming().getFirst().isNotified());
+    }
+
+    @Test
+    void rotateAndClassify_notifiesStoredEventWhenItEntersWindow() {
+        Event stored = event("Monthly Mixer", futureDate(3), "Downtown", null);
+
+        EventStore store = new EventStore(null, null);
+        EventStore.RotateResult result = store.rotateAndClassify(List.of(stored), List.of(), List.of());
+
+        assertEquals(0, result.newlyStored().size());
+        assertEquals(1, result.toNotify().size());
+    }
+
+    @Test
+    void rotateAndClassify_skipsAlreadyNotifiedEventsInWindow() {
+        Event notified = eventNotified("Soon", futureDate(2), "2026-01-01T00:00:00Z");
+
+        EventStore store = new EventStore(null, null);
+        EventStore.RotateResult result = store.rotateAndClassify(List.of(notified), List.of(), List.of());
+
+        assertEquals(0, result.toNotify().size());
+    }
+
+    @Test
+    void markNotified_stampsMatchingUpcomingEvents() {
+        Event stored = event("Soon", futureDate(2), null, null);
+        String stamp = "2026-06-10T12:00:00Z";
+
+        List<Event> marked = EventStore.markNotified(List.of(stored), List.of(stored), stamp);
+
+        assertEquals(stamp, marked.getFirst().notifiedAt());
     }
 
     @Test
