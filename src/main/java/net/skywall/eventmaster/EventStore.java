@@ -88,6 +88,20 @@ public final class EventStore {
             hints.add("dl:" + date + "|" + location);
         }
 
+        if (hints.isEmpty()) {
+            // Stable last-resort identity for events with no usable date/location/luma.
+            // Uses source + sourceMessageId (post ID for IG, message ID for Gmail)
+            // so the same logical event can still be matched across runs.
+            String source = java.util.Objects.toString(event.source(), "");
+            String msgId = java.util.Objects.toString(event.sourceMessageId(), "");
+            String t = normaliseText(event.title());
+            // Only emit id: key if we have something meaningful (source+msgId or title+source)
+            boolean hasSourceKey = !source.isEmpty() && !msgId.isEmpty();
+            boolean hasTitleWithSource = !t.isEmpty() && !source.isEmpty();
+            if (hasSourceKey || hasTitleWithSource) {
+                hints.add("id:" + source + "|" + msgId + "|" + t);
+            }
+        }
         return hints;
     }
 
