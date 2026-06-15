@@ -18,7 +18,7 @@ import java.util.Optional;
  */
 public final class DateFilters {
 
-    public static final int DEFAULT_WINDOW_DAYS = 7;
+    public static final int DEFAULT_WINDOW_DAYS = 21;
 
     private static final List<DateTimeFormatter> WITH_YEAR = List.of(
             DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.US),
