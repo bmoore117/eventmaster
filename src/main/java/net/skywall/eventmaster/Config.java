@@ -174,15 +174,35 @@ public final class Config {
 
     private Properties loadProperties() {
         Properties props = new Properties();
+
+        // 1. Local eventmaster.properties
         Path propsPath = root.resolve(PROPERTIES_FILE);
-        if (!Files.isRegularFile(propsPath)) {
-            return props;
+        if (Files.isRegularFile(propsPath)) {
+            try (InputStream in = Files.newInputStream(propsPath)) {
+                props.load(in);
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to load " + propsPath.toAbsolutePath(), e);
+            }
         }
-        try (InputStream in = Files.newInputStream(propsPath)) {
-            props.load(in);
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to load " + propsPath.toAbsolutePath(), e);
+
+        // 2. ~/.hermes/.env — map API_SERVER_KEY → HERMES_API_KEY if needed
+        Path hermesEnv = Path.of(System.getProperty("user.home"))
+                .resolve(".hermes").resolve(".env");
+        if (Files.isRegularFile(hermesEnv)) {
+            Properties hermesProps = new Properties();
+            try (InputStream in = Files.newInputStream(hermesEnv)) {
+                hermesProps.load(in);
+            } catch (IOException ignored) {}
+
+            String apiServerKey = hermesProps.getProperty("API_SERVER_KEY");
+            if (apiServerKey != null && !apiServerKey.isBlank()) {
+                if (props.getProperty("HERMES_API_KEY") == null &&
+                        System.getenv("HERMES_API_KEY") == null) {
+                    props.setProperty("HERMES_API_KEY", apiServerKey);
+                }
+            }
         }
+
         return props;
     }
 
