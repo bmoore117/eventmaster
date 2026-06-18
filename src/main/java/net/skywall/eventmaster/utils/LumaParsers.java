@@ -207,8 +207,15 @@ public final class LumaParsers {
                 );
             }
 
-            String slug = ev.path("url").asString("");
-            String eventUrl = slug.isEmpty() ? sourceUrl : "https://lu.ma/" + slug;
+            String urlValue = ev.path("url").asString("");
+            String eventUrl;
+            if (urlValue.isEmpty()) {
+                eventUrl = sourceUrl;
+            } else if (urlValue.startsWith("http://") || urlValue.startsWith("https://")) {
+                eventUrl = urlValue;
+            } else {
+                eventUrl = "https://lu.ma/" + urlValue;
+            }
 
             events.add(new Event(
                     name,

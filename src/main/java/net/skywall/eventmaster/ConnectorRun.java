@@ -312,8 +312,8 @@ public final class ConnectorRun {
             // Classifier-level soft failure: leave the post IDs unprocessed
             // so the next run retries them, and emit a warning so the agent
             // sees the degradation.
-            log.error("Instagram classification failed — {} post(s) left unprocessed for retry: {}",
-                    postsToClassify.size(), e.getMessage());
+            log.error("Instagram classification failed — {} post(s) left unprocessed for retry",
+                    postsToClassify.size(), e);
             String code = e instanceof JacksonException ? "classifier_malformed_json" : "classifier_io";
             warnings.add(new RunWarning("instagram_classifier", code, safeMessage(e)));
         }
