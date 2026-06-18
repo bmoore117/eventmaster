@@ -70,30 +70,26 @@ public final class StateStore {
 
     public void saveConsecutiveFailures(int n) throws IOException {
         ConnectorState current = loadConnectorState();
-        saveConnectorState(new ConnectorState(
-                n, current.instagramBootstrapped(), current.lastWarningCodes(),
-                current.instagramLastFetchedAt()));
+        saveConnectorState(new ConnectorState(n, current.instagramBootstrapped(),
+                current.lastWarningCodes(), current.instagramLastFetchedAt()));
     }
 
     public void saveInstagramBootstrapped(Set<String> accounts) throws IOException {
         ConnectorState current = loadConnectorState();
-        saveConnectorState(new ConnectorState(
-                current.consecutiveFailures(), accounts, current.lastWarningCodes(),
-                current.instagramLastFetchedAt()));
+        saveConnectorState(new ConnectorState(current.consecutiveFailures(), accounts,
+                current.lastWarningCodes(), current.instagramLastFetchedAt()));
     }
 
     public void saveLastWarningCodes(Set<String> codes) throws IOException {
         ConnectorState current = loadConnectorState();
-        saveConnectorState(new ConnectorState(
-                current.consecutiveFailures(), current.instagramBootstrapped(), codes,
-                current.instagramLastFetchedAt()));
+        saveConnectorState(new ConnectorState(current.consecutiveFailures(),
+                current.instagramBootstrapped(), codes, current.instagramLastFetchedAt()));
     }
 
     public void saveInstagramLastFetchedAt(String fetchedAt) throws IOException {
         ConnectorState current = loadConnectorState();
-        saveConnectorState(new ConnectorState(
-                current.consecutiveFailures(), current.instagramBootstrapped(),
-                current.lastWarningCodes(), fetchedAt));
+        saveConnectorState(new ConnectorState(current.consecutiveFailures(),
+                current.instagramBootstrapped(), current.lastWarningCodes(), fetchedAt));
     }
 
     private ConnectorState loadConnectorState() {
@@ -101,39 +97,8 @@ public final class StateStore {
             return new ConnectorState(0, Set.of(), Set.of(), null);
         }
         try {
-            JsonNode root = Json.MAPPER.readTree(Files.readAllBytes(connectorStatePath));
-            Set<String> bootstrapped = new HashSet<>();
-            JsonNode handles = root.path("instagram_bootstrapped");
-            if (handles.isArray()) {
-                for (JsonNode handle : handles) {
-                    String value = handle.asString(null);
-                    if (value != null && !value.isBlank()) {
-                        bootstrapped.add(value);
-                    }
-                }
-            }
-            Set<String> warningCodes = new HashSet<>();
-            JsonNode codes = root.path("last_warning_codes");
-            if (codes.isArray()) {
-                for (JsonNode code : codes) {
-                    String value = code.asString(null);
-                    if (value != null && !value.isBlank()) {
-                        warningCodes.add(value);
-                    }
-                }
-            }
-            String lastFetchedAt = root.path("instagram_last_fetched_at").asString(null);
-            if (lastFetchedAt != null && lastFetchedAt.isBlank()) {
-                lastFetchedAt = null;
-            }
-            return new ConnectorState(
-                    root.path("consecutive_failures").asInt(0),
-                    bootstrapped,
-                    warningCodes,
-                    lastFetchedAt);
+            return Json.MAPPER.readValue(Files.readAllBytes(connectorStatePath), ConnectorState.class);
         } catch (IOException | JacksonException e) {
-            // JacksonException is unchecked in Jackson 3.x — catch explicitly
-            // so a malformed connector-state.json doesn't crash the run.
             log.warn("Could not parse {} — assuming fresh connector state", connectorStatePath.getFileName());
             return new ConnectorState(0, Set.of(), Set.of(), null);
         }
@@ -141,18 +106,7 @@ public final class StateStore {
 
     private void saveConnectorState(ConnectorState state) throws IOException {
         Files.createDirectories(connectorStatePath.getParent());
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("consecutive_failures", state.consecutiveFailures());
-        if (!state.instagramBootstrapped().isEmpty()) {
-            body.put("instagram_bootstrapped", new ArrayList<>(new TreeSet<>(state.instagramBootstrapped())));
-        }
-        if (!state.lastWarningCodes().isEmpty()) {
-            body.put("last_warning_codes", new ArrayList<>(new TreeSet<>(state.lastWarningCodes())));
-        }
-        if (state.instagramLastFetchedAt() != null && !state.instagramLastFetchedAt().isBlank()) {
-            body.put("instagram_last_fetched_at", state.instagramLastFetchedAt());
-        }
-        Files.write(connectorStatePath, Json.PRETTY.writeValueAsBytes(body));
+        Files.write(connectorStatePath, Json.PRETTY.writeValueAsBytes(state));
     }
 
     private static Set<String> loadIdSet(Path path) {
